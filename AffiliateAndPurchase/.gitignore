@@ -1,0 +1,29 @@
+# Secrets
+.env
+
+# Old/backup files
+old files/
+
+# Cache (large binary/json intermediate data)
+cache/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp

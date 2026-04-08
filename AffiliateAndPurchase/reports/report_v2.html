@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AliHelper Affiliate Investigation v2.1 — Corrected Methodology</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --surface2: #1c2230;
+    --border: #30363d; --text: #e6edf3; --muted: #8b949e;
+    --accent: #58a6ff; --green: #3fb950; --red: #f85149;
+    --yellow: #d29922; --orange: #db6d28; --purple: #bc8cff;
+    --global: #58a6ff; --cis: #3fb950; --noobs: #8b949e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; font-size: 14px; line-height: 1.6; }
+  .layout { display: flex; min-height: 100vh; }
+  nav { width: 240px; min-width: 240px; background: var(--surface); border-right: 1px solid var(--border); padding: 20px 0; position: sticky; top: 0; height: 100vh; overflow-y: auto; flex-shrink: 0; }
+  main { flex: 1; padding: 32px 40px; max-width: 1100px; }
+  .nav-logo { padding: 0 16px 20px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+  .nav-logo h3 { font-size: 13px; color: var(--accent); font-weight: 600; }
+  .nav-logo p { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  nav a { display: block; padding: 7px 16px; color: var(--muted); text-decoration: none; font-size: 13px; border-left: 3px solid transparent; transition: all .15s; }
+  nav a:hover, nav a.active { color: var(--text); border-left-color: var(--accent); background: rgba(88,166,255,.05); }
+  .nav-section { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); padding: 16px 16px 4px; }
+  h1 { font-size: 28px; font-weight: 700; line-height: 1.3; margin-bottom: 8px; }
+  h2 { font-size: 20px; font-weight: 600; border-bottom: 1px solid var(--border); padding-bottom: 10px; margin: 40px 0 20px; color: var(--accent); }
+  h3 { font-size: 15px; font-weight: 600; margin: 24px 0 12px; }
+  p { margin-bottom: 12px; color: var(--muted); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; letter-spacing: .03em; vertical-align: middle; }
+  .badge-global { background: rgba(88,166,255,.15); color: var(--global); border: 1px solid rgba(88,166,255,.3); }
+  .badge-cis { background: rgba(63,185,80,.15); color: var(--cis); border: 1px solid rgba(63,185,80,.3); }
+  .badge-noobs { background: rgba(139,148,158,.12); color: var(--noobs); border: 1px solid rgba(139,148,158,.25); }
+  .alert { padding: 14px 18px; border-radius: 8px; margin-bottom: 20px; font-size: 13px; line-height: 1.6; }
+  .alert-warn { background: rgba(210,153,34,.1); border: 1px solid rgba(210,153,34,.3); color: var(--yellow); }
+  .alert-info { background: rgba(88,166,255,.08); border: 1px solid rgba(88,166,255,.2); color: var(--accent); }
+  .alert-red  { background: rgba(248,81,73,.08); border: 1px solid rgba(248,81,73,.2); color: var(--red); }
+  .alert-green{ background: rgba(63,185,80,.08); border: 1px solid rgba(63,185,80,.2); color: var(--cis); }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 32px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
+  .card-val { font-size: 30px; font-weight: 700; line-height: 1; margin-bottom: 4px; }
+  .card-label { font-size: 12px; color: var(--muted); font-weight: 500; }
+  .card-sub { font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .card.green .card-val { color: var(--green); }
+  .card.red .card-val { color: var(--red); }
+  .card.yellow .card-val { color: var(--yellow); }
+  .card.blue .card-val { color: var(--accent); }
+  .card.purple .card-val { color: var(--purple); }
+  .tbl-wrap { overflow-x: auto; margin: 16px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { background: var(--surface2); color: var(--muted); font-weight: 600; text-align: left; padding: 9px 12px; border-bottom: 2px solid var(--border); white-space: nowrap; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,.02); }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .pct { text-align: right; color: var(--muted); font-size: 12px; }
+  .code { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 11px; background: var(--surface2); padding: 2px 6px; border-radius: 4px; }
+  .funnel { margin: 16px 0; }
+  .funnel-step { display: flex; align-items: center; margin-bottom: 8px; }
+  .funnel-bar-wrap { flex: 1; height: 32px; background: var(--surface2); border-radius: 6px; overflow: hidden; }
+  .funnel-bar { height: 100%; display: flex; align-items: center; padding: 0 12px; font-size: 12px; font-weight: 600; color: #fff; border-radius: 6px; white-space: nowrap; }
+  .funnel-label { width: 280px; font-size: 12px; color: var(--muted); flex-shrink: 0; padding-right: 12px; }
+  .funnel-count { width: 100px; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; flex-shrink: 0; padding-left: 12px; }
+  .cause-grid { display: grid; gap: 16px; margin: 16px 0; }
+  .cause-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px; border-left: 4px solid; }
+  .cause-card.high { border-left-color: var(--red); }
+  .cause-card.medium { border-left-color: var(--yellow); }
+  .cause-card.low { border-left-color: var(--muted); }
+  .cause-card.noobs { border-left-color: var(--noobs); }
+  .cause-title { font-size: 14px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .cause-meta { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; }
+  .cause-meta-item { font-size: 11px; color: var(--muted); }
+  .cause-meta-item strong { color: var(--text); }
+  .cause-body { font-size: 13px; color: var(--muted); margin: 8px 0; }
+  .cause-fix { font-size: 12px; background: var(--surface2); border-radius: 6px; padding: 8px 12px; margin-top: 10px; color: var(--accent); }
+  .cause-fix::before { content: '→ Fix: '; color: var(--muted); }
+  .rec-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px; margin-bottom: 12px; }
+  .rec-list { list-style: none; }
+  .rec-list li { font-size: 13px; color: var(--muted); padding: 5px 0 5px 18px; position: relative; border-bottom: 1px solid var(--border); }
+  .rec-list li:last-child { border-bottom: none; }
+  .rec-list li::before { content: '→'; position: absolute; left: 0; color: var(--accent); }
+  .caveat-list { display: grid; gap: 10px; margin: 12px 0; }
+  .caveat { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+  .caveat strong { color: var(--yellow); display: block; margin-bottom: 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .caveat p { color: var(--muted); margin: 0; font-size: 12px; }
+  section { margin-bottom: 56px; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .invalidated { background: rgba(248,81,73,.06); border: 1px solid rgba(248,81,73,.2); border-radius: 8px; padding: 14px 18px; margin-bottom: 16px; }
+  .invalidated strong { color: var(--red); display: block; margin-bottom: 6px; }
+  .invalidated p { color: var(--muted); margin: 0; font-size: 13px; }
+  .replaced { background: rgba(63,185,80,.06); border: 1px solid rgba(63,185,80,.2); border-radius: 8px; padding: 14px 18px; margin-bottom: 16px; }
+  .replaced strong { color: var(--cis); display: block; margin-bottom: 6px; }
+  .replaced p { color: var(--muted); margin: 0; font-size: 13px; }
+  .observability-key { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0 24px; }
+  .obs-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .obs-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  @media (max-width: 900px) { nav { display: none; } main { padding: 24px 20px; } .cards { grid-template-columns: 1fr 1fr; } }
+</style>
+</head>
+<body>
+<div class="layout">
+<nav>
+  <div class="nav-logo">
+    <h3>AliHelper Investigation</h3>
+    <p>v2.1 — UA region fix</p>
+  </div>
+  <div class="nav-section">Overview</div>
+  <a href="#changes">What Changed</a>
+  <a href="#definitions">Definitions</a>
+  <a href="#caveats">Data Caveats</a>
+  <div class="nav-section">Problem A</div>
+  <a href="#pa-overview">Overview</a>
+  <a href="#pa-global">Global Funnel</a>
+  <a href="#pa-cis">CIS Funnel</a>
+  <a href="#pa-segments">Segments</a>
+  <a href="#pa-causes">Root Causes A</a>
+  <div class="nav-section">Problem B</div>
+  <a href="#pb-overview">Overview</a>
+  <a href="#pb-global-codes">Global Codes</a>
+  <a href="#pb-cis-codes">CIS Codes</a>
+  <a href="#pb-segments">Segments</a>
+  <a href="#pb-causes">Root Causes B</a>
+  <div class="nav-section">Actions</div>
+  <a href="#recs">Recommendations</a>
+  <a href="#instrumentation">Instrumentation</a>
+</nav>
+
+<main>
+<section id="top">
+  <h1>AliHelper Affiliate Investigation <span style="font-size:18px;color:var(--muted)">v2.1</span></h1>
+  <p style="color:var(--muted);font-size:14px;margin-bottom:20px;">
+    Analysis window A: 2026-03-06 – 2026-04-02 &nbsp;|&nbsp;
+    Analysis window B: 2026-02-27 – 2026-03-26 &nbsp;|&nbsp;
+    Run: 2026-04-04
+  </p>
+  <div class="observability-key">
+    <div class="obs-item"><div class="obs-dot" style="background:var(--global)"></div><span><strong style="color:var(--global)">GLOBAL_DIRECT</strong> — directly observable via MongoDB sk/af</span></div>
+    <div class="obs-item"><div class="obs-dot" style="background:var(--cis)"></div><span><strong style="color:var(--cis)">CIS_PROXY</strong> — proxy signal only (aliexpress.ru visit)</span></div>
+    <div class="obs-item"><div class="obs-dot" style="background:var(--noobs)"></div><span><strong style="color:var(--noobs)">NOT_OBSERVABLE</strong> — cannot be determined from historical data</span></div>
+  </div>
+  <div class="cards">
+    <div class="card red">
+      <div class="card-val">12.8%</div>
+      <div class="card-label">Problem A — Ineligible gap</div>
+      <div class="card-sub">8,154 of 63,916 raw users</div>
+    </div>
+    <div class="card yellow">
+      <div class="card-val">74.5%</div>
+      <div class="card-label">Eligible → hub (overall)</div>
+      <div class="card-sub">41,547 of 55,762 eligible users</div>
+    </div>
+    <div class="card blue">
+      <div class="card-val">6.3%</div>
+      <div class="card-label">Problem B — Net gap</div>
+      <div class="card-sub">33,035 PC without Purchase</div>
+    </div>
+    <div class="card purple">
+      <div class="card-val">45,047</div>
+      <div class="card-label">CIS PC events</div>
+      <div class="card-sub">EPN attribution = NOT_OBSERVABLE</div>
+    </div>
+  </div>
+</section>
+
+<section id="changes">
+  <h2>What Changed</h2>
+
+  <h3>v2 → v2.1: UA region classification fix</h3>
+
+  <div class="invalidated">
+    <strong>❌ INVALIDATED (v2): UA classified as CIS/EPN</strong>
+    <p>v2 included Ukraine (UA) in CIS_COUNTRIES, causing UA users to be analyzed under the CIS proxy-return framework. CLAUDE.md explicitly states: "UA must be treated as Global / Portals, not CIS / EPN." UA is now analyzed with direct sk logic.</p>
+  </div>
+
+  <div class="invalidated">
+    <strong>❌ INVALIDATED (v2): "UA anomaly — 3.9% proxy return despite 73.9% hub reach"</strong>
+    <p>This was a methodological artifact. UA users were being evaluated with the CIS proxy signal (aliexpress.ru visit within 120s), which is the wrong metric for Global/Portals traffic. Under correct Global sk logic, UA shows 71.2% sk-return — completely normal for a European country.</p>
+  </div>
+
+  <div class="invalidated">
+    <strong>❌ INVALIDATED (v2): "stock-tops.com and discount-tops.net show 24–25% CIS proxy return"</strong>
+    <p>This apparent anomaly was caused by UA users (who route via Global portals, not aliexpress.ru) being counted in the CIS hub proxy-return metric. With UA correctly classified as Global, CIS hub proxy return rates are: market-tops 66.5%, tools-tops 66.2%, discount-tops 60.3%, stock-tops 64.2% — no anomaly.</p>
+  </div>
+
+  <div class="replaced">
+    <strong>✅ FIXED: UA is Global/Portals, analyzed via sk logic</strong>
+    <p>UA: 3,175 eligible users, 2,347 hub reach (73.9%), 2,261 sk-return (71.2%) [GLOBAL_DIRECT]. This matches the expected range for European Global countries (ES: 75.8%, PL: 77.2%, FR: 77.0%).</p>
+  </div>
+
+  <div class="replaced">
+    <strong>✅ FIXED: UA PC events now use Global reason codes</strong>
+    <p>~13,840 UA Purchase Completed events moved from CIS to Global classification. Now correctly analyzed with NO_OUR_SK_IN_72H, AF_AFTER_OUR_SK etc. [GLOBAL_DIRECT].</p>
+  </div>
+
+  <h3>v1 → v2: CIS/EPN limited-observability framework</h3>
+
+  <div class="invalidated">
+    <strong>❌ INVALIDATED (v1): CIS hub sk-return comparison</strong>
+    <p>v1 compared hub performance using sk-return rate for ALL users including CIS. CIS traffic uses EPN affiliate return (utm_*), not sk. The observed low sk-return for CIS users was a methodological artifact.</p>
+  </div>
+  <div class="invalidated">
+    <strong>❌ INVALIDATED (v1): CIS reason codes in Problem B</strong>
+    <p>v1 applied Global sk-based codes (NO_OUR_SK_IN_72H, FOREIGN_SK_AFTER_OUR_SK) to CIS events. EPN attribution is NOT_OBSERVABLE from historical events.</p>
+  </div>
+  <div class="replaced">
+    <strong>✅ REPLACED (v2): CIS uses proxy-return signal + CIS-specific reason codes</strong>
+    <p>CIS proxy return = aliexpress.ru event within 120s of Affiliate Click [CIS_PROXY]. Problem B CIS: CIS_LIKELY_DELAYED_POSTBACK / CIS_PURCHASE_COMPLETED_WITHOUT_PURCHASE_UNDER_LIMITED_OBSERVABILITY / CIS_NO_HUB_REACH_OBSERVED.</p>
+  </div>
+</section>
+
+<section id="definitions">
+  <h2>Definitions Locked</h2>
+  <div class="tbl-wrap">
+    <table>
+      <tr><th>#</th><th>Definition</th><th>Value</th></tr>
+      <tr><td>1</td><td>Canonical user identity</td><td><span class="code">guests._id</span> = <span class="code">events.guest_id</span> = Mixpanel <span class="code">$user_id</span></td></tr>
+      <tr><td>2</td><td>Global / Portals region</td><td>All countries except RU BY KZ UZ AZ AM GE KG MD TJ TM. <strong>UA is Global.</strong> <span class="badge badge-global">GLOBAL_DIRECT</span></td></tr>
+      <tr><td>3</td><td>CIS / EPN region</td><td>RU, BY, KZ, UZ, AZ, AM, GE, KG, MD, TJ, TM. <strong>UA excluded.</strong> <span class="badge badge-cis">CIS_PROXY</span></td></tr>
+      <tr><td>4</td><td>Global direct affiliate state</td><td><span class="code">events.payload.querySk</span> ∈ {_c36PoUEj, _d6jWDbY, _AnTGXs, _olPBn9X, _dVh6yw5} <span class="badge badge-global">GLOBAL_DIRECT</span></td></tr>
+      <tr><td>5</td><td>CIS limited-observability state</td><td>Affiliate Click + aliexpress.ru event ≤120s = proxy return. EPN params = <span class="badge badge-noobs">NOT_OBSERVABLE</span></td></tr>
+      <tr><td>6</td><td>Eligible opportunity</td><td><span class="code">payload.productId != null</span> (product page) OR empty pathname on any AliExpress host (homepage)</td></tr>
+      <tr><td>7</td><td>Attribution window</td><td>72 hours before Purchase Completed</td></tr>
+      <tr><td>8</td><td>Mature purchase cohort</td><td>PC events 2026-02-27 – 2026-03-26 (excludes last 7d for postback delivery)</td></tr>
+      <tr><td>9</td><td>Purchase matching rule</td><td>Same <span class="code">$user_id</span> + time proximity ≤10 min. Order ID not required.</td></tr>
+      <tr><td>10</td><td>CIS proxy-return rule</td><td>Affiliate Click at T → aliexpress.ru event in MongoDB within T+120s <span class="badge badge-cis">CIS_PROXY</span></td></tr>
+      <tr><td>11</td><td>Latest delivered config rule</td><td>Latest guestStateHistory record before the analyzed event. In-window preferred, else 14d lookback.</td></tr>
+    </table>
+  </div>
+</section>
+
+<section id="caveats">
+  <h2>Data Quality &amp; Observability Caveats</h2>
+  <div class="caveat-list">
+    <div class="caveat">
+      <strong>CIS EPN Attribution Not Observable <span class="badge badge-noobs">NOT_OBSERVABLE</span></strong>
+      <p>MongoDB events do not store utm_source / utm_medium / utm_campaign. AliHelper EPN return pattern (utm_source=aerkol, utm_campaign=*_7685) cannot be reconstructed from historical data.</p>
+    </div>
+    <div class="caveat">
+      <strong>CIS Proxy Return Is Indirect <span class="badge badge-cis">CIS_PROXY</span></strong>
+      <p>aliexpress.ru event within 120s of Affiliate Click proves site return only, not EPN param preservation.</p>
+    </div>
+    <div class="caveat">
+      <strong>Affiliate Click Cache Coverage for Problem B</strong>
+      <p>Cache covers Mar 6 – Apr 3. PC events from Feb 27 – Mar 8 have incomplete 72h AC lookback. CIS_NO_HUB_REACH_OBSERVED may be overstated for that ~10-day period.</p>
+    </div>
+    <div class="caveat">
+      <strong>Cashback Observability Partial</strong>
+      <p>cashback_list in PC is client-reported. Cashback site visits not logged to backend. Actual interference rate likely higher than observed 1.6%.</p>
+    </div>
+    <div class="caveat">
+      <strong>No order_id in Most Purchase Completed</strong>
+      <p>Primary matching is user + time proximity (±10 min). Ambiguous matches treated as matched.</p>
+    </div>
+    <div class="caveat">
+      <strong>guestStateHistory = Config Delivery, Not Usage</strong>
+      <p>Records confirm config was delivered. They do NOT confirm a redirect was executed using that config.</p>
+    </div>
+    <div class="caveat">
+      <strong>No Direct Auto-Redirect Log</strong>
+      <p>webNavigation.onBeforeNavigate is not logged to backend. Auto-redirect opportunity is reconstructed indirectly.</p>
+    </div>
+    <div class="caveat">
+      <strong>Only _id Index on events and guestStateHistory</strong>
+      <p>All queries use _id-based date range. No field-level index on guest_id in events. Aggregation scans the full window.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ─── PROBLEM A ─── -->
+<h2 style="color:var(--text);font-size:22px;margin-top:48px;">Problem A — Missing Affiliate Click</h2>
+<p>Why do eligible AliExpress users not generate an Affiliate Click? Analysis window: Mar 6 – Apr 2, 2026.</p>
+
+<section id="pa-overview">
+  <h2>Problem A — Overview</h2>
+  <div class="cards">
+    <div class="card blue">
+      <div class="card-val">63,916</div>
+      <div class="card-label">Raw users (total activity)</div>
+      <div class="card-sub">47,932 Global + 15,984 CIS</div>
+    </div>
+    <div class="card yellow">
+      <div class="card-val">55,762</div>
+      <div class="card-label">Eligible users (87.2%)</div>
+      <div class="card-sub">Product page or homepage visit</div>
+    </div>
+    <div class="card green">
+      <div class="card-val">41,547</div>
+      <div class="card-label">Reached hub (74.5%)</div>
+      <div class="card-sub">Affiliate Click in Mixpanel</div>
+    </div>
+    <div class="card red">
+      <div class="card-val">14,215</div>
+      <div class="card-label">Eligible, never reached hub</div>
+      <div class="card-sub">25.5% activation gap</div>
+    </div>
+  </div>
+</section>
+
+<section id="pa-global">
+  <h2>Global / Portals Funnel <span class="badge badge-global">GLOBAL_DIRECT</span></h2>
+  <p>47,932 Global users including UA. Affiliate return observable via <span class="code">querySk</span>.</p>
+  <div class="funnel">
+    <div class="funnel-step">
+      <div class="funnel-label">1. Raw activity</div>
+      <div class="funnel-bar-wrap"><div class="funnel-bar" style="width:100%;background:#1f6feb;">47,932 (100%)</div></div>
+      <div class="funnel-count">47,932</div>
+    </div>
+    <div class="funnel-step">
+      <div class="funnel-label">2. Eligible (product / homepage)</div>
+      <div class="funnel-bar-wrap"><div class="funnel-bar" style="width:87.1%;background:#1f6feb;">41,734 (87.1%)</div></div>
+      <div class="funnel-count">41,734</div>
+    </div>
+    <div class="funnel-step">
+      <div class="funnel-label">3. Usable config (value=True)</div>
+      <div class="funnel-bar-wrap"><div class="funnel-bar" style="width:86.8%;background:#2ea043;">41,627 (99.7% of elig)</div></div>
+      <div class="funnel-count">41,627</div>
+    </div>
+    <div class="funnel-step">
+      <div class="funnel-label">4. Reached hub (Affiliate Click)</div>
+      <div class="funnel-bar-wrap"><div class="funnel-bar" style="width:76.8%;background:#d29922;">32,064 (76.8% of elig)</div></div>
+      <div class="funnel-count">32,064</div>
+    </div>
+    <div class="funnel-step">
+      <div class="funnel-label">5. Returned with our sk</div>
+      <div class="funnel-bar-wrap"><div class="funnel-bar" style="width:73.0%;background:#f85149;">30,464 (73.0% of elig)</div></div>
+      <div class="funnel-count">30,464</div>
+    </div>
+  </div>
+  <div class="alert alert-info" style="margin-top:16px;">
+    A5 (silent redirect — sk in events, no Affiliate Click): <strong>396 users (0.9%)</strong><br>
+    A6 (reached hub, no sk return): <strong>1,996 users (4.8%)</strong>
+  </div>
+
+  <h3>Gap Decomposition</h3>
+  <div class="tbl-wrap">
+    <table>
+      <tr><th>Gap bucket</th><th class="num">Users</th><th class="pct">% of gap</th></tr>
+      <tr><td>No config snapshot found</td><td class="num">92</td><td class="pct">0.6%</td></tr>
+      <tr><td>Config found but value=False</td><td class="num">18</td><td class="pct">0.1%</td></tr>
+      <tr><td>Usable config but never reached hub</td><td class="num">14,142</td><td class="pct">99.5%</td></tr>
+      <tr><td>A5: silent redirect (sk return, no click)</td><td class="num">396</td><td class="pct">2.8%</td></tr>
+    </table>
+  </div>
+  <p class="note">Config delivery is not the bottleneck. 99.5% of the activation gap is users with working configs who never trigger hub activation (DOGI or auto-redirect).</p>
+
+  <h3>Hub Performance — Global Only <span class="badge badge-global">GLOBAL_DIRECT</span></h3>
+  <div class="alert alert-warn">Hub sk-return is only valid for Global traffic. CIS hub comparison = NOT_OBSERVABLE_WITH_CURRENT_DATA.</div>
+  <div class="tbl-wrap">
+    <table>
+      <tr><th>Hub domain</th><th class="num">Users</th><th class="num">Reached hub</th><th class="pct">% hub</th><th class="num">sk return</th><th class="pct">% return</th></tr>
+      <tr><td>discount-tops.net</td><td class="num">13,086</td><td class="num">9,974</td><td class="pct">76.2%</td><td class="num">9,607</td><td class="pct">73.4%</td></tr>
+      <tr><td>stock-tops.com</td><td class="num">12,917</td><td class="num">10,002</td><td class="pct">77.4%</td><td class="num">9,544</td><td class="pct">73.9%</td></tr>
+      <tr><td>tools-tops.com</td><td class="num">7,879</td><td class="num">6,120</td><td class="pct">77.7%</td><td class="num">5,735</td><td class="pct">72.8%</td></tr>
+      <tr><td>market-tops.com</td><td class="num">7,745</td><td class="num">5,931</td><td class="pct">76.6%</td><td class="num">5,556</td><td class="pct">71.7%</td></tr>
+    </table>
+  </div>
+  <p class="note">All Global hubs perform uniformly (71–74% sk-return). No hub tier split. The v1/v2 anomaly was an artifact of CIS user contamination.</p>
+</section>
+
+<section id="pa-cis">
+  <h2>CIS / EPN Funnel <span class="badge badge-cis">CIS_PROXY</span></h2>
+  <div class="alert alert-warn">Direct EPN attribution (utm_*) is NOT_OBSERVABLE in historical events. Step 5 uses a proxy signal only. Step 5a = <span class="badge badge-noobs">NOT_OBSERVABLE_WITH_CURRENT_DATA</span>.</div>
+
+  <div class="funnel">
+    <div class="funnel-step">
+      <div class="funnel-label">1. Raw activity</div>
+      <div class="funnel-bar-wrap"><div class="funnel-bar" style="width:100%;background:#2ea043;">15,984 (100%)</div></div>
+      <div class="funnel-count">15,984</div>
+    </div>
+    <div class="funnel-step">
+      <div class="funnel-label">2. Eligible (product / homepage)</div>
+      <div class="funnel-bar-wrap"><div class="funnel-bar" style="width:87.8%;background:#2ea043;">14,028 (87.8%)</div></div>
+      <div class="funnel-count">14,028</div>
+    </div>
+    <div class="funnel-step">
+      <div class="funnel-label">3. Usable config (value=True)</div>
+      <div class="funnel-bar-wrap"><div class="funnel-bar" style="width:87.8%;background:#2ea043;">14,025 (100.0% of elig)</div></div>
+      <div class="funnel-count">14,025</div>
+    </div>
+    <div class="funnel-step">
+      <div class="funnel-label">4. Reached hub (Affiliate Click)</div>
+      <div class="funnel-bar-wrap"><div class="funnel-bar" style="width:67.6%;background:#d29922;">9,483 (67.6% of elig)</div></div>
+      <div class="funnel-count">9,483</div>
+    </div>
+    <div class="funnel-step">
+      <div class="funnel-label">5. Proxy return to aliexpress.ru (≤120s)</div>
+      <div class="funnel-bar-wrap"><div class="funnel-bar" style="width:65.9%;background:#bc8cff;">9,238 (65.9% of elig) [CIS_PROXY]</div></div>
+      <div class="funnel-count">9,238</div>
+    </div>
+    <div class="funnel-step">
+      <div class="funnel-label" style="color:var(--noobs)">5a. Affiliate params preserved</div>
+      <div class="funnel-bar-wrap" style="background:rgba(139,148,158,.08);border:1px dashed var(--border);"><div style="padding:8px 12px;font-size:12px;color:var(--noobs);">NOT_OBSERVABLE_WITH_CURRENT_DATA</div></div>
+      <div class="funnel-count" style="color:var(--noobs)">—</div>
+    </div>
+  </div>
+
+  <div class="alert alert-green" style="margin-top:16px;">
+    Of 10,669 CIS users who had Affiliate Click, <strong>9,329 (87.4%)</strong> had a proxy return to aliexpress.ru within 120s [CIS_PROXY].<br>
+    A6 (hub reached, no proxy return): <strong>245 users (1.7% of eligible)</strong> — small residual.
+  </div>
+
+  <h3>CIS Hub Performance <span class="badge badge-cis">CIS_PROXY</span></h3>
+  <div class="tbl-wrap">
+    <table>
+      <tr><th>Hub domain</th><th class="num">Users</th><th class="num">Reached hub</th><th class="pct">% hub</th><th class="num">Proxy return</th><th class="pct">% return [CIS_PROXY]</th></tr>
+      <tr><td>market-tops.com</td><td class="num">6,154</td><td class="num">4,178</td><td class="pct">67.9%</td><td class="num">4,094</td><td class="pct">66.5%</td></tr>
+      <tr><td>tools-tops.com</td><td class="num">6,150</td><td class="num">4,157</td><td class="pct">67.6%</td><td class="num">4,073</td><td class="pct">66.2%</td></tr>
+      <tr><td>discount-tops.net</td><td class="num">866</td><td class="num">566</td><td class="pct">65.4%</td><td class="num">522</td><td class="pct">60.3%</td></tr>
+      <tr><td>stock-tops.com</td><td class="num">855</td><td class="num">582</td><td class="pct">68.1%</td><td class="num">549</td><td class="pct">64.2%</td></tr>
+    </table>
+  </div>
+  <p class="note">All CIS hubs show similar proxy return rates (60–66%). No anomaly. The v2 finding of 24–25% proxy return for stock-tops/discount-tops was caused by UA users (Global traffic) being misclassified as CIS.</p>
+</section>
+
+<section id="pa-segments">
+  <h2>Problem A — Segmentation</h2>
+
+  <h3>By Lineage (eligible users)</h3>
+  <div class="tbl-wrap">
+    <table>
+      <tr><th>Lineage</th><th class="num">Users</th><th class="pct">% elig</th><th class="num">Reached hub</th><th class="pct">% hub</th><th class="num">Global sk-ret</th><th class="pct">% [GD]</th><th class="num">CIS proxy-ret</th><th class="pct">% [CP]</th></tr>
+      <tr><td>dogi</td><td class="num">42,905</td><td class="pct">76.9%</td><td class="num">30,653</td><td class="pct">71.4%</td><td class="num">22,248</td><td class="pct">71.1%</td><td class="num">7,299</td><td class="pct">63.0%</td></tr>
+      <tr><td>auto-redirect</td><td class="num">12,857</td><td class="pct">23.1%</td><td class="num">10,894</td><td class="pct">84.7%</td><td class="num">8,216</td><td class="pct">78.8%</td><td class="num">1,939</td><td class="pct">79.6%</td></tr>
+    </table>
+  </div>
+  <p class="note">Auto-redirect (Firefox/Edge) outperforms DOGI by 13.3pp on hub reach. CIS proxy return is also higher for auto-redirect (79.6% vs 63.0%).</p>
+
+  <h3>Auto-Redirect: Firefox vs Edge (eligible)</h3>
+  <div class="tbl-wrap">
+    <table>
+      <tr><th>Browser</th><th class="num">Users</th><th class="num">Reached hub</th><th class="pct">% hub</th><th class="num">Global sk-ret</th><th class="pct">% [GD]</th><th class="num">CIS proxy-ret</th><th class="pct">% [CP]</th></tr>
+      <tr><td>Firefox</td><td class="num">8,474</td><td class="num">7,599</td><td class="pct">89.7%</td><td class="num">5,308</td><td class="pct">80.6%</td><td class="num">1,585</td><td class="pct">83.9%</td></tr>
+      <tr><td>Edge</td><td class="num">4,383</td><td class="num">3,295</td><td class="pct">75.2%</td><td class="num">2,908</td><td class="pct">75.8%</td><td class="num">354</td><td class="pct">64.7%</td></tr>
+    </table>
+  </div>
+  <p class="note">Firefox: 89.7% hub reach vs Edge: 75.2% — 14.5pp gap. Edge auto-redirect requires investigation.</p>
+
+  <h3>Top Countries (eligible, min 50 users)</h3>
+  <div class="tbl-wrap">
+    <table>
+      <tr><th>Country</th><th>Region</th><th class="num">Users</th><th class="num">Hub</th><th class="pct">% hub</th><th>Return signal</th><th class="pct">% return</th><th>Observability</th></tr>
+      <tr><td>RU</td><td><span class="badge badge-cis">CIS</span></td><td class="num">11,669</td><td class="num">7,919</td><td class="pct">67.9%</td><td>7,755 (proxy)</td><td class="pct">66.5%</td><td><span class="badge badge-cis">CIS_PROXY</span></td></tr>
+      <tr><td><strong>UA</strong></td><td><span class="badge badge-global">Global</span></td><td class="num">3,175</td><td class="num">2,347</td><td class="pct">73.9%</td><td>2,261 (sk)</td><td class="pct"><strong>71.2%</strong></td><td><span class="badge badge-global">GLOBAL_DIRECT</span></td></tr>
+      <tr><td>ES</td><td><span class="badge badge-global">Global</span></td><td class="num">3,154</td><td class="num">2,477</td><td class="pct">78.5%</td><td>2,392 (sk)</td><td class="pct">75.8%</td><td><span class="badge badge-global">GLOBAL_DIRECT</span></td></tr>
+      <tr><td>BR</td><td><span class="badge badge-global">Global</span></td><td class="num">2,481</td><td class="num">1,835</td><td class="pct">74.0%</td><td>1,821 (sk)</td><td class="pct">73.4%</td><td><span class="badge badge-global">GLOBAL_DIRECT</span></td></tr>
+      <tr><td>CL</td><td><span class="badge badge-global">Global</span></td><td class="num">2,227</td><td class="num">1,763</td><td class="pct">79.2%</td><td>1,734 (sk)</td><td class="pct">77.9%</td><td><span class="badge badge-global">GLOBAL_DIRECT</span></td></tr>
+      <tr><td>MX</td><td><span class="badge badge-global">Global</span></td><td class="num">2,103</td><td class="num">1,640</td><td class="pct">78.0%</td><td>1,625 (sk)</td><td class="pct">77.3%</td><td><span class="badge badge-global">GLOBAL_DIRECT</span></td></tr>
+      <tr><td>PL</td><td><span class="badge badge-global">Global</span></td><td class="num">1,890</td><td class="num">1,519</td><td class="pct">80.4%</td><td>1,459 (sk)</td><td class="pct">77.2%</td><td><span class="badge badge-global">GLOBAL_DIRECT</span></td></tr>
+      <tr><td>FR</td><td><span class="badge badge-global">Global</span></td><td class="num">1,756</td><td class="num">1,418</td><td class="pct">80.8%</td><td>1,352 (sk)</td><td class="pct">77.0%</td><td><span class="badge badge-global">GLOBAL_DIRECT</span></td></tr>
+      <tr><td>BY</td><td><span class="badge badge-cis">CIS</span></td><td class="num">1,095</td><td class="num">712</td><td class="pct">65.0%</td><td>662 (proxy)</td><td class="pct">60.5%</td><td><span class="badge badge-cis">CIS_PROXY</span></td></tr>
+      <tr><td>US</td><td><span class="badge badge-global">Global</span></td><td class="num">1,056</td><td class="num">769</td><td class="pct">72.8%</td><td>661 (sk)</td><td class="pct">62.6%</td><td><span class="badge badge-global">GLOBAL_DIRECT</span></td></tr>
+    </table>
+  </div>
+  <p class="note">UA now shows 71.2% sk-return (GLOBAL_DIRECT) — normal for a European country. The v2 "UA anomaly" is resolved.</p>
+
+  <h3>Config Coverage by Region and Lineage</h3>
+  <div class="tbl-wrap">
+    <table>
+      <tr><th>Region</th><th>Lineage</th><th class="num">Users</th><th class="num">Has config</th><th class="pct">%</th><th class="num">Usable config</th><th class="pct">%</th></tr>
+      <tr><td>Global</td><td>auto-redirect</td><td class="num">10,421</td><td class="num">10,351</td><td class="pct">99.3%</td><td class="num">10,345</td><td class="pct">99.3%</td></tr>
+      <tr><td>Global</td><td>dogi</td><td class="num">31,313</td><td class="num">31,291</td><td class="pct">99.9%</td><td class="num">31,282</td><td class="pct">99.9%</td></tr>
+      <tr><td>CIS</td><td>auto-redirect</td><td class="num">2,436</td><td class="num">2,436</td><td class="pct">100.0%</td><td class="num">2,435</td><td class="pct">100.0%</td></tr>
+      <tr><td>CIS</td><td>dogi</td><td class="num">11,592</td><td class="num">11,592</td><td class="pct">100.0%</td><td class="num">11,590</td><td class="pct">100.0%</td></tr>
+    </table>
+  </div>
+  <p class="note">Config delivery is &gt;99% for all segments. Not the bottleneck.</p>
+
+  <h3>Page Type (eligible)</h3>
+  <div class="tbl-wrap">
+    <table>
+      <tr><th>Page type</th><th class="num">Users</th><th class="num">Reached hub</th><th class="pct">% hub</th></tr>
+      <tr><td>Product page only</td><td class="num">36,247</td><td class="num">26,453</td><td class="pct">73.0%</td></tr>
+      <tr><td>Homepage only</td><td class="num">2,326</td><td class="num">153</td><td class="pct">6.6%</td></tr>
+      <tr><td>Both</td><td class="num">17,189</td><td class="num">14,941</td><td class="pct">86.9%</td></tr>
+    </table>
+  </div>
+  <p class="note">Homepage-only users: 6.6% hub reach. DOGI targets product pages; homepage auto-redirect depends on browser behavior.</p>
+</section>
+
+<section id="pa-causes">
+  <h2>Problem A — Ranked Root Causes</h2>
+  <div class="cause-grid">
+    <div class="cause-card high">
+      <div class="cause-title">#1 Usable config, never reached hub — DOGI / auto-redirect gap <span class="badge badge-global">GLOBAL_DIRECT</span><span class="badge badge-cis">CIS_PROXY</span></div>
+      <div class="cause-body">14,142 users (99.5% of activation gap) had a working config delivered but never triggered Affiliate Click. The hub activation mechanism (DOGI coin interaction or auto-redirect) failed to fire. This is the dominant cause.</div>
+      <div class="cause-meta">
+        <div class="cause-meta-item"><strong>Affected</strong> 14,142 users</div>
+        <div class="cause-meta-item"><strong>% of gap</strong> 99.5%</div>
+        <div class="cause-meta-item"><strong>Confidence</strong> HIGH</div>
+      </div>
+      <div class="cause-fix">Improve DOGI coin visibility; audit 30-min cooldown logic; A/B test DOGI placement</div>
+    </div>
+
+    <div class="cause-card high">
+      <div class="cause-title">#2 Ineligible traffic (12.8% of raw)</div>
+      <div class="cause-body">8,154 users visited only ineligible AliExpress pages. Correctly excluded from the denominator — this is not a failure, but it must be accounted for in activation rate calculations.</div>
+      <div class="cause-meta">
+        <div class="cause-meta-item"><strong>Affected</strong> 8,154 users</div>
+        <div class="cause-meta-item"><strong>Confidence</strong> HIGH</div>
+      </div>
+      <div class="cause-fix">Always use eligible-only denominator in activation rate KPIs</div>
+    </div>
+
+    <div class="cause-card medium">
+      <div class="cause-title">#3 DOGI underperforms auto-redirect by 13.3pp <span class="badge badge-global">GLOBAL_DIRECT</span></div>
+      <div class="cause-body">Auto-redirect (Firefox/Edge): 84.7% hub reach. DOGI (Chrome-like): 71.4%. DOGI requires active user interaction. 76.9% of eligible users are on DOGI lineage — this is the dominant user segment.</div>
+      <div class="cause-meta">
+        <div class="cause-meta-item"><strong>DOGI hub reach</strong> 71.4%</div>
+        <div class="cause-meta-item"><strong>Auto-redirect hub reach</strong> 84.7%</div>
+        <div class="cause-meta-item"><strong>Confidence</strong> HIGH</div>
+      </div>
+      <div class="cause-fix">Product experiment: reduce DOGI activation friction; consider alternative triggers for Chrome</div>
+    </div>
+
+    <div class="cause-card medium">
+      <div class="cause-title">#4 Edge auto-redirect underperforms Firefox by 14.5pp <span class="badge badge-global">GLOBAL_DIRECT</span></div>
+      <div class="cause-body">Firefox: 89.7% hub reach vs Edge: 75.2%. Both use webNavigation.onBeforeNavigate. Gap suggests Edge-specific API behavior difference.</div>
+      <div class="cause-meta">
+        <div class="cause-meta-item"><strong>Firefox</strong> 89.7%</div>
+        <div class="cause-meta-item"><strong>Edge</strong> 75.2%</div>
+        <div class="cause-meta-item"><strong>Confidence</strong> MEDIUM</div>
+      </div>
+      <div class="cause-fix">Investigate Edge webNavigation timing; check onBeforeNavigate reliability in Edge for AliExpress URLs</div>
+    </div>
+
+    <div class="cause-card low">
+      <div class="cause-title">#5 CIS: hub reached, no proxy return (245 users) <span class="badge badge-cis">CIS_PROXY</span></div>
+      <div class="cause-body">245 CIS users reached hub but had no aliexpress.ru event within 120s. Small residual after fixing the UA misclassification. EPN state is NOT_OBSERVABLE. May reflect hub redirect URL variations or session timing.</div>
+      <div class="cause-meta">
+        <div class="cause-meta-item"><strong>Affected</strong> 245 users (1.7% of CIS eligible)</div>
+        <div class="cause-meta-item"><strong>Confidence</strong> MEDIUM (CIS_PROXY)</div>
+      </div>
+      <div class="cause-fix">Add Affiliate Return Detected event; log EPN utm params to backend</div>
+    </div>
+
+    <div class="cause-card low">
+      <div class="cause-title">#6 A5: Silent redirect — sk in events, no Affiliate Click <span class="badge badge-global">GLOBAL_DIRECT</span></div>
+      <div class="cause-body">396 users have our sk in MongoDB events but no Affiliate Click in Mixpanel. Redirect succeeded but Mixpanel event was not fired.</div>
+      <div class="cause-meta">
+        <div class="cause-meta-item"><strong>Affected</strong> 396 users</div>
+        <div class="cause-meta-item"><strong>Confidence</strong> MEDIUM</div>
+      </div>
+      <div class="cause-fix">Fix Mixpanel event firing reliability in hub redirect flow</div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── PROBLEM B ─── -->
+<h2 style="color:var(--text);font-size:22px;margin-top:48px;">Problem B — Purchase Completed vs Purchase</h2>
+<p>Why is <em>Purchase Completed</em> higher than commission-bearing <em>Purchase</em>? Window: Feb 27 – Mar 26, 2026.</p>
+
+<section id="pb-overview">
+  <h2>Problem B — Overview</h2>
+  <div class="cards">
+    <div class="card blue">
+      <div class="card-val">523,143</div>
+      <div class="card-label">Purchase Completed</div>
+      <div class="card-sub">Feb 27 – Mar 26 (mature cohort)</div>
+    </div>
+    <div class="card green">
+      <div class="card-val">490,108</div>
+      <div class="card-label">Purchase (commissions)</div>
+    </div>
+    <div class="card red">
+      <div class="card-val">33,035</div>
+      <div class="card-label">Net gap (6.3%)</div>
+      <div class="card-sub">Primary metric</div>
+    </div>
+    <div class="card purple">
+      <div class="card-val">45,047</div>
+      <div class="card-label">CIS PC events</div>
+      <div class="card-sub">EPN attribution NOT_OBSERVABLE</div>
+    </div>
+  </div>
+
+  <div class="alert alert-info">
+    <strong>Primary metric is the net raw gap (33,035 / 6.3%)</strong>, not per-event matching. Net gap is stable across matching windows confirming the true commissioning gap is 6.3%. Most per-event unmatched are delayed postbacks.
+  </div>
+
+  <h3>Matching Sensitivity</h3>
+  <div class="tbl-wrap">
+    <table>
+      <tr><th>Window</th><th class="num">Matched</th><th class="pct">% matched</th><th class="num">Unmatched</th><th class="pct">% unmatched</th></tr>
+      <tr><td>±5 min</td><td class="num">211,333</td><td class="pct">40.4%</td><td class="num">311,810</td><td class="pct">59.6%</td></tr>
+      <tr><td>±10 min</td><td class="num">264,851</td><td class="pct">50.6%</td><td class="num">258,292</td><td class="pct">49.4%</td></tr>
+      <tr><td>±20 min</td><td class="num">287,753</td><td class="pct">55.0%</td><td class="num">235,390</td><td class="pct">45.0%</td></tr>
+      <tr><td>±30 min</td><td class="num">298,785</td><td class="pct">57.1%</td><td class="num">224,358</td><td class="pct">42.9%</td></tr>
+      <tr><td>±60 min</td><td class="num">314,698</td><td class="pct">60.2%</td><td class="num">208,445</td><td class="pct">39.8%</td></tr>
+    </table>
+  </div>
+  <p class="note">Gap between per-event unmatched (39.8%–59.6%) and net raw gap (6.3%) ≈ delayed postbacks. True commissioning gap is 6.3%.</p>
+
+  <h3>CIS vs Global Split</h3>
+  <div class="tbl-wrap">
+    <table>
+      <tr><th>Region</th><th class="num">PC events</th><th class="num">Matched</th><th class="pct">% matched</th><th class="num">Unmatched</th><th class="pct">% unmatched</th><th>Observability</th></tr>
+      <tr><td><span class="badge badge-global">Global</span> (incl. UA)</td><td class="num">478,096</td><td class="num">238,720</td><td class="pct">49.9%</td><td class="num">239,376</td><td class="pct">50.1%</td><td><span class="badge badge-global">GLOBAL_DIRECT</span></td></tr>
+      <tr><td><span class="badge badge-cis">CIS</span></td><td class="num">45,047</td><td class="num">26,131</td><td class="pct">58.0%</td><td class="num">18,916</td><td class="pct">42.0%</td><td><span class="badge badge-cis">CIS_PROXY</span></td></tr>
+    </table>
+  </div>
+</section>
+
+<section id="pb-global-codes">
+  <h2>Global — Reason Codes <span class="badge badge-global">GLOBAL_DIRECT</span></h2>
+  <p>478,096 Global PC events (includes UA). Classified using sk and af signals.</p>
+  <div class="tbl-wrap">
+    <table>
+      <tr><th>Reason code</th><th class="num">Count</th><th class="pct">% unmatched Global</th><th class="pct">% all Global PC</th></tr>
+      <tr><td><span class="code">NO_OUR_SK_IN_72H</span></td><td class="num">148,239</td><td class="pct">61.9%</td><td class="pct">31.0%</td></tr>
+      <tr><td><span class="code">AF_AFTER_OUR_SK</span></td><td class="num">58,381</td><td class="pct">24.4%</td><td class="pct">12.2%</td></tr>
+      <tr><td><span class="code">UNKNOWN</span></td><td class="num">32,513</td><td class="pct">13.6%</td><td class="pct">6.8%</td></tr>
+      <tr><td><span class="code">CASHBACK_TRACE</span></td><td class="num">149</td><td class="pct">0.1%</td><td class="pct">0.0%</td></tr>
+      <tr><td><span class="code">FOREIGN_SK_AFTER_OUR_SK</span></td><td class="num">94</td><td class="pct">0.0%</td><td class="pct">0.0%</td></tr>
+    </table>
+  </div>
+
+  <h3>Global Attribution State in Unmatched</h3>
+  <div class="tbl-wrap">
+    <table>
+      <tr><th>Attribute</th><th class="num">Count</th><th class="pct">% of unmatched Global</th></tr>
+      <tr><td>Has our last_sk</td><td class="num">91,131</td><td class="pct">38.1%</td></tr>
+      <tr><td>Has foreign last_sk</td><td class="num">142,058</td><td class="pct">59.3%</td></tr>
+      <tr><td>Has any our sk (last or current)</td><td class="num">91,137</td><td class="pct">38.1%</td></tr>
+      <tr><td>Has foreign sk (current)</td><td class="num">2,114</td><td class="pct">0.9%</td></tr>
+      <tr><td>Has af</td><td class="num">300</td><td class="pct">0.1%</td></tr>
+      <tr><td>Has last_af</td><td class="num">183,481</td><td class="pct">76.6%</td></tr>
+      <tr><td>Has cashback trace</td><td class="num">3,713</td><td class="pct">1.6%</td></tr>
+    </table>
+  </div>
+  <p class="note">last_af is set in 76.6% of unmatched Global events — the dominant observable overwrite signal. AF_AFTER_OUR_SK (58,381 events, 24.4%) is the key overwrite bucket.</p>
+
+  <h3>Our last_sk Distribution (Global unmatched, with our sk)</h3>
+  <div class="tbl-wrap">
+    <table>
+      <tr><th>sk value</th><th class="num">Count</th><th class="pct">% of "has our sk" subset</th></tr>
+      <tr><td><span class="code">_c36PoUEj</span></td><td class="num">26,084</td><td class="pct">29.5%</td></tr>
+      <tr><td><span class="code">_d6jWDbY</span></td><td class="num">23,095</td><td class="pct">26.1%</td></tr>
+      <tr><td><span class="code">_AnTGXs</span></td><td class="num">19,564</td><td class="pct">22.1%</td></tr>
+      <tr><td><span class="code">_olPBn9X</span></td><td class="num">18,682</td><td class="pct">21.1%</td></tr>
+      <tr><td><span class="code">_dVh6yw5</span></td><td class="num">981</td><td class="pct">1.1%</td></tr>
+    </table>
+  </div>
+</section>
+
+<section id="pb-cis-codes">
+  <h2>CIS — Reason Codes <span class="badge badge-cis">CIS_PROXY</span></h2>
+  <div class="alert alert-red">No sk-based reason codes are used for CIS. EPN attribution is NOT_OBSERVABLE_WITH_CURRENT_DATA. 45,047 CIS PC events (UA excluded — UA is Global).</div>
+  <div class="tbl-wrap">
+    <table>
+      <tr><th>Reason code</th><th class="num">Count</th><th class="pct">% of CIS PC</th><th>Observability</th></tr>
+      <tr><td><span class="code">CIS_LIKELY_DELAYED_POSTBACK</span></td><td class="num">26,131</td><td class="pct">58.0%</td><td><span class="badge badge-cis">CIS_PROXY</span></td></tr>
+      <tr><td><span class="code">CIS_PURCHASE_COMPLETED_WITHOUT_PURCHASE_UNDER_LIMITED_OBSERVABILITY</span></td><td class="num">10,995</td><td class="pct">24.4%</td><td><span class="badge badge-cis">CIS_PROXY</span></td></tr>
+      <tr><td><span class="code">CIS_NO_HUB_REACH_OBSERVED</span></td><td class="num">7,921</td><td class="pct">17.6%</td><td><span class="badge badge-cis">CIS_PROXY</span></td></tr>
+    </table>
+  </div>
+
+  <h3>CIS Observability Summary</h3>
+  <div class="tbl-wrap">
+    <table>
+      <tr><th>Signal</th><th>Status</th></tr>
+      <tr><td>CIS total PC</td><td>45,047 (UA excluded — UA is Global)</td></tr>
+      <tr><td>CIS matched to Purchase (≤10 min)</td><td>26,131 (58.0%)</td></tr>
+      <tr><td>CIS unmatched</td><td>18,916 (42.0%)</td></tr>
+      <tr><td>CIS EPN affiliate state (utm_*)</td><td><span class="badge badge-noobs">NOT_OBSERVABLE_WITH_CURRENT_DATA</span></td></tr>
+      <tr><td>CIS overwrite detection</td><td><span class="badge badge-noobs">NOT_OBSERVABLE_WITH_CURRENT_DATA</span></td></tr>
+      <tr><td>CIS proxy return per PC event</td><td><span class="badge badge-noobs">NOT_OBSERVABLE_WITH_CURRENT_DATA</span> (requires additional per-event MongoDB query)</td></tr>
+    </table>
+  </div>
+</section>
+
+<section id="pb-segments">
+  <h2>Problem B — Segmentation</h2>
+
+  <h3>Unmatched PC by Browser</h3>
+  <div class="tbl-wrap">
+    <table>
+      <tr><th>Browser</th><th class="num">Unmatched</th><th class="num">All PC</th><th class="pct">Loss %</th><th>Top reason</th></tr>
+      <tr><td>Chrome</td><td class="num">222,923</td><td class="num">438,369</td><td class="pct">50.9%</td><td><span class="code">NO_OUR_SK_IN_72H</span></td></tr>
+      <tr><td>Firefox</td><td class="num">13,993</td><td class="num">36,839</td><td class="pct">38.0%</td><td><span class="code">NO_OUR_SK_IN_72H</span></td></tr>
+      <tr><td>Edge</td><td class="num">8,706</td><td class="num">20,705</td><td class="pct">42.0%</td><td><span class="code">NO_OUR_SK_IN_72H</span></td></tr>
+      <tr><td>YaBrowser</td><td class="num">7,010</td><td class="num">17,135</td><td class="pct">40.9%</td><td><span class="code">CIS_PURCHASE_COMPLETED_…</span> [CIS_PROXY]</td></tr>
+      <tr><td>Opera</td><td class="num">5,235</td><td class="num">9,492</td><td class="pct">55.2%</td><td><span class="code">NO_OUR_SK_IN_72H</span></td></tr>
+    </table>
+  </div>
+  <p class="note">Per-event loss % is inflated by delayed postbacks. True loss rate tracks closer to the net raw gap (6.3%).</p>
+
+  <h3>Top Countries by Loss Rate (min 30 total PC)</h3>
+  <div class="tbl-wrap">
+    <table>
+      <tr><th>Country</th><th>Region</th><th class="num">Total PC</th><th class="num">Unmatched</th><th class="pct">Loss %</th><th>Observability</th></tr>
+      <tr><td>GE</td><td><span class="badge badge-cis">CIS</span></td><td class="num">686</td><td class="num">476</td><td class="pct">69.4%</td><td><span class="badge badge-cis">CIS_PROXY</span></td></tr>
+      <tr><td>BR</td><td><span class="badge badge-global">Global</span></td><td class="num">12,233</td><td class="num">8,467</td><td class="pct">69.2%</td><td><span class="badge badge-global">GLOBAL_DIRECT</span></td></tr>
+      <tr><td>AR</td><td><span class="badge badge-global">Global</span></td><td class="num">2,371</td><td class="num">1,599</td><td class="pct">67.4%</td><td><span class="badge badge-global">GLOBAL_DIRECT</span></td></tr>
+      <tr><td>TR</td><td><span class="badge badge-global">Global</span></td><td class="num">132</td><td class="num">126</td><td class="pct">95.5%</td><td><span class="badge badge-global">GLOBAL_DIRECT</span></td></tr>
+      <tr><td>IE</td><td><span class="badge badge-global">Global</span></td><td class="num">837</td><td class="num">665</td><td class="pct">79.5%</td><td><span class="badge badge-global">GLOBAL_DIRECT</span></td></tr>
+    </table>
+  </div>
+</section>
+
+<section id="pb-causes">
+  <h2>Problem B — Ranked Root Causes</h2>
+  <div class="cause-grid">
+    <div class="cause-card high">
+      <div class="cause-title">#1 Delayed postback — primary cause of apparent gap <span class="badge badge-global">GLOBAL_DIRECT</span></div>
+      <div class="cause-body">Net raw gap is 33,035 (6.3%). Per-event unmatched at ±10 min is 258,292 (49.4%). The difference ≈ delayed postbacks arriving hours/days after PC. Global UNKNOWN bucket (32,513) ≈ net raw gap, confirming this interpretation.</div>
+      <div class="cause-meta">
+        <div class="cause-meta-item"><strong>Net gap</strong> 33,035 (6.3%)</div>
+        <div class="cause-meta-item"><strong>Confidence</strong> HIGH</div>
+      </div>
+      <div class="cause-fix">Always use mature cohort excluding last 7 days; monitor postback SLA with partner</div>
+    </div>
+
+    <div class="cause-card high">
+      <div class="cause-title">#2 NO_OUR_SK_IN_72H — no AliHelper attribution before purchase <span class="badge badge-global">GLOBAL_DIRECT</span></div>
+      <div class="cause-body">148,239 Global unmatched PC events (61.9%) had no AliHelper-owned sk in the prior 72h. The user purchased without AliHelper being the last-click affiliate. Largest single unmatched bucket for Global.</div>
+      <div class="cause-meta">
+        <div class="cause-meta-item"><strong>Affected</strong> 148,239 Global PC</div>
+        <div class="cause-meta-item"><strong>% unmatched Global</strong> 61.9%</div>
+        <div class="cause-meta-item"><strong>Confidence</strong> HIGH</div>
+      </div>
+      <div class="cause-fix">Increase activation rate (Problem A fixes); investigate users who purchase with no prior AliHelper activation</div>
+    </div>
+
+    <div class="cause-card high">
+      <div class="cause-title">#3 AF_AFTER_OUR_SK — af-bearing overwrite after our sk <span class="badge badge-global">GLOBAL_DIRECT</span></div>
+      <div class="cause-body">58,381 Global unmatched PC events (24.4%) had our sk followed by an af-bearing visit. last_af is set in 76.6% of all unmatched Global events. AliHelper typically does not use af in its own links — last_af presence indicates a third-party affiliate touch.</div>
+      <div class="cause-meta">
+        <div class="cause-meta-item"><strong>Affected</strong> 58,381 Global PC</div>
+        <div class="cause-meta-item"><strong>% unmatched Global</strong> 24.4%</div>
+        <div class="cause-meta-item"><strong>Confidence</strong> HIGH</div>
+      </div>
+      <div class="cause-fix">Identify sources of last_af overwrites; negotiate attribution priority with AliExpress partner program</div>
+    </div>
+
+    <div class="cause-card noobs">
+      <div class="cause-title">#4 CIS: EPN attribution entirely unobservable <span class="badge badge-noobs">NOT_OBSERVABLE_WITH_CURRENT_DATA</span></div>
+      <div class="cause-body">45,047 CIS PC events (UA excluded). Whether EPN affiliate params were present at purchase time is NOT_OBSERVABLE from historical events. 42.0% (18,916) are per-event unmatched.</div>
+      <div class="cause-meta">
+        <div class="cause-meta-item"><strong>CIS total PC</strong> 45,047</div>
+        <div class="cause-meta-item"><strong>Confidence</strong> N/A — not observable</div>
+      </div>
+      <div class="cause-fix">CRITICAL: add utm_source/utm_medium/utm_campaign storage to MongoDB events for aliexpress.ru returns; add Affiliate Return Detected event</div>
+    </div>
+
+    <div class="cause-card low">
+      <div class="cause-title">#5 Cashback interference <span class="badge badge-global">GLOBAL_DIRECT</span> (partial)</div>
+      <div class="cause-body">3,713 Global unmatched PC events (1.6%) have cashback traces. Actual rate is likely higher — cashback site visits are only in client local storage.</div>
+      <div class="cause-meta">
+        <div class="cause-meta-item"><strong>Observable</strong> 3,713 events (1.6%)</div>
+        <div class="cause-meta-item"><strong>Confidence</strong> LOW (partial obs.)</div>
+      </div>
+      <div class="cause-fix">Add server-side cashback visit logging</div>
+    </div>
+  </div>
+
+  <h3>Unexplained Remainder</h3>
+  <div class="tbl-wrap">
+    <table>
+      <tr><th>Item</th><th>Amount</th><th>Observability</th><th>Notes</th></tr>
+      <tr><td>Global UNKNOWN bucket</td><td>32,513</td><td><span class="badge badge-global">GLOBAL_DIRECT</span></td><td>≈ net raw gap; confirmed delayed postbacks</td></tr>
+      <tr><td>Global A6: hub reached, no sk return</td><td>1,996</td><td><span class="badge badge-global">GLOBAL_DIRECT</span></td><td>Hub behavior anomaly; requires hub-side investigation</td></tr>
+      <tr><td>CIS unmatched PC</td><td>18,916</td><td><span class="badge badge-noobs">NOT_OBSERVABLE</span></td><td>Cause breakdown not determinable without utm_* data</td></tr>
+      <tr><td>CIS A6: hub reached, no proxy return</td><td>245</td><td><span class="badge badge-cis">CIS_PROXY</span></td><td>Small residual; EPN state unknown</td></tr>
+    </table>
+  </div>
+</section>
+
+<section id="recs">
+  <h2>Recommendations</h2>
+
+  <h3>Quick Wins (days)</h3>
+  <div class="rec-card">
+    <ul class="rec-list">
+      <li>Fix Edge auto-redirect: investigate why Firefox reaches hub at 89.7% vs Edge at 75.2%. Check webNavigation timing in Edge.</li>
+      <li>Instrument Affiliate Click tracking: 396 users have our sk in events but no Affiliate Click — Mixpanel event not firing.</li>
+      <li>Investigate Global A6 (1,996 users reached hub, no sk return): check hub redirect URL injection logic.</li>
+    </ul>
+  </div>
+
+  <h3>Medium-Term Product Changes</h3>
+  <div class="rec-card">
+    <ul class="rec-list">
+      <li>Improve DOGI activation: 99.5% of the activation gap is users with working config who never interact with DOGI. A/B test coin placement, alternative triggers for Chrome.</li>
+      <li>Investigate AF overwrite (58,381 Global events, 24.4% of unmatched): identify which affiliate programs set last_af and negotiate attribution rules.</li>
+      <li>Homepage activation improvement: only 6.6% of homepage-only users reach hub.</li>
+    </ul>
+  </div>
+
+  <h3>Tracking / Instrumentation (critical)</h3>
+  <div class="rec-card">
+    <ul class="rec-list">
+      <li><strong>[CRITICAL for CIS]</strong> Store utm_source, utm_medium, utm_campaign in MongoDB events for aliexpress.ru return visits. Without this, 45,047 CIS PC events per 28-day window have no observable attribution state.</li>
+      <li>Add <em>Affiliate Return Detected</em> client-side Mixpanel event for both Global sk returns and CIS EPN utm_* returns.</li>
+      <li>Persist last_epn_campaign, last_epn_source, last_epn_medium, last_epn_datetime analogous to last_sk for Global.</li>
+      <li>Add server-side cashback visit logging.</li>
+    </ul>
+  </div>
+
+  <h3>Follow-Up Analyses</h3>
+  <div class="rec-card">
+    <ul class="rec-list">
+      <li>CIS per-PC proxy return: targeted MongoDB query to compute aliexpress.ru proxy return per individual CIS PC event for Problem B classification.</li>
+      <li>Extend Affiliate Click cache to cover Feb 24 – Mar 6 to remove coverage gap in CIS 72h lookback for Problem B.</li>
+      <li>Global A6 investigation: why do 1,996 users reach hub but return without our sk?</li>
+    </ul>
+  </div>
+</section>
+
+<section id="instrumentation">
+  <h2>Instrumentation Roadmap</h2>
+  <div class="alert alert-red">
+    Without utm_* storage for CIS, 45,047 CIS PC events per 28-day window are an attribution black box. This is the single highest-priority instrumentation gap.
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <tr><th>Field</th><th>Source</th><th>Priority</th><th>Notes</th></tr>
+      <tr><td><span class="code">utm_source</span></td><td>aliexpress.ru return URL</td><td class="pct" style="color:var(--red)">CRITICAL</td><td>Must be aerkol for AliHelper EPN</td></tr>
+      <tr><td><span class="code">utm_medium</span></td><td>aliexpress.ru return URL</td><td class="pct" style="color:var(--red)">CRITICAL</td><td>Must be cpa</td></tr>
+      <tr><td><span class="code">utm_campaign</span></td><td>aliexpress.ru return URL</td><td class="pct" style="color:var(--red)">CRITICAL</td><td>Must end in _7685 (AliHelper EPN account)</td></tr>
+      <tr><td><span class="code">is_alihelper_owned_affiliate_marker</span></td><td>Derived</td><td class="pct" style="color:var(--yellow)">HIGH</td><td>Boolean from utm_* pattern match</td></tr>
+      <tr><td><span class="code">last_epn_datetime</span></td><td>Client-side</td><td class="pct" style="color:var(--yellow)">HIGH</td><td>Analogous to last_sk_datetime for Global</td></tr>
+      <tr><td><span class="code">Affiliate Return Detected</span></td><td>Mixpanel event</td><td class="pct" style="color:var(--yellow)">HIGH</td><td>Fire on landing with owned markers (both Global sk and CIS utm_*)</td></tr>
+    </table>
+  </div>
+</section>
+
+<div style="height:60px;"></div>
+</main>
+</div>
+<script>
+const sections = document.querySelectorAll('section[id]');
+const navLinks = document.querySelectorAll('nav a');
+const obs = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      navLinks.forEach(a => a.classList.remove('active'));
+      const link = document.querySelector(`nav a[href="#${e.target.id}"]`);
+      if (link) link.classList.add('active');
+    }
+  });
+}, { threshold: 0.1, rootMargin: '-60px 0px -60% 0px' });
+sections.forEach(s => obs.observe(s));
+</script>
+</body>
+</html>

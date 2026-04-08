@@ -27,3 +27,6 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Recon cache (temporary Mixpanel samples)
+_recon_*.json

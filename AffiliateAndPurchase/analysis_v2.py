@@ -19,161 +19,36 @@ CACHE REUSE:
 Run: python3 -u analysis_v2.py 2>&1 | tee /tmp/analysis_v2_output.txt
 """
 
-# ─────────────────────────────────────────────────────────────
-# SECTION 0: Setup & Constants
-# ─────────────────────────────────────────────────────────────
-import os, json, time, re, pickle
-from pathlib import Path
+import json, time, pickle
 from datetime import datetime, timezone, timedelta
-from urllib.parse import urlparse
 
 import pandas as pd
 import numpy as np
-from dotenv import load_dotenv
-import sshtunnel
-import pymongo
 from bson import ObjectId
-import requests
-from requests.auth import HTTPBasicAuth
 from tabulate import tabulate
 
-load_dotenv()
-
-CACHE_DIR = Path("./cache")
-CACHE_DIR.mkdir(exist_ok=True)
-
-# MongoDB
-SSH_HOST   = os.getenv("MONGO_SSH_HOST")
-SSH_USER   = os.getenv("MONGO_SSH_USER")
-DB_HOST    = os.getenv("MONGO_DB_HOST")
-DB_PORT    = int(os.getenv("MONGO_DB_PORT", 27017))
-LOCAL_PORT = int(os.getenv("MONGO_LOCAL_PORT", 27018))
-DB_NAME    = os.getenv("MONGO_DB_NAME")
-MONGO_USER = os.getenv("MONGO_USER")
-MONGO_PASS = os.getenv("MONGO_PASSWORD")
-AUTH_DB    = os.getenv("MONGO_AUTH_DB", "admin")
-
-# Mixpanel
-MP_ACCOUNT = os.getenv("MIXPANEL_SERVICE_ACCOUNT")
-MP_SECRET  = os.getenv("MIXPANEL_SECRET")
-MP_PROJECT = os.getenv("MIXPANEL_PROJECT_ID")
-
-# Analysis windows (UTC)
-A_START = datetime(2026, 3,  6,  0,  0,  0, tzinfo=timezone.utc)
-A_END   = datetime(2026, 4,  2, 23, 59, 59, tzinfo=timezone.utc)
-B_START = datetime(2026, 2, 27,  0,  0,  0, tzinfo=timezone.utc)
-B_END   = datetime(2026, 3, 26, 23, 59, 59, tzinfo=timezone.utc)
-
-# AliHelper-owned Global sk whitelist (for Global traffic only)
-OUR_SKS = {"_c36PoUEj", "_d6jWDbY", "_AnTGXs", "_olPBn9X", "_dVh6yw5"}
-
-# CIS countries (UA is Global/Portals per CLAUDE.md — analyzed via direct sk logic)
-CIS_COUNTRIES = {"RU", "BY", "KZ", "UZ", "AZ", "AM", "GE", "KG", "MD", "TJ", "TM"}
-
-# Auto-redirect browsers
-AUTO_REDIRECT_BROWSERS = {"firefox", "edge"}
-
-# CIS proxy return window (seconds after Affiliate Click)
-PROXY_RETURN_WINDOW_S = 120
-
-# Problem B 72h lookback window
-ATTRIBUTION_WINDOW_H = 72
-
-
-def oid_from_dt(dt: datetime) -> ObjectId:
-    ts = int(dt.timestamp())
-    return ObjectId(f"{ts:08x}0000000000000000")
-
-
-def pct(num, denom, decimals=1):
-    if denom == 0:
-        return "N/A"
-    return f"{100*num/denom:.{decimals}f}%"
-
-
-def pct_f(num, denom):
-    """Return float percentage, 0 if denom is 0."""
-    if denom == 0:
-        return 0.0
-    return 100 * num / denom
-
-
-def print_section(title):
-    print(f"\n{'='*70}")
-    print(f"  {title}")
-    print(f"{'='*70}")
-
-
-def browser_family(browser_str: str) -> str:
-    if not browser_str:
-        return "unknown"
-    b = str(browser_str).lower()
-    if "firefox" in b:
-        return "firefox"
-    if "edge" in b or "edg/" in b:
-        return "edge"
-    if "yandex" in b or "yabrowser" in b:
-        return "yandex"
-    if "opera" in b or "opr/" in b:
-        return "opera"
-    if "chrome" in b or "chromium" in b:
-        return "chrome"
-    if "safari" in b:
-        return "safari"
-    return "other"
-
-
-def lineage(bf: str) -> str:
-    if bf in AUTO_REDIRECT_BROWSERS:
-        return "auto-redirect"
-    return "dogi"
-
-
-def is_cis(country: str) -> bool:
-    return str(country).upper() in CIS_COUNTRIES
+from src.config import (
+    CACHE_DIR, A_START, A_END, B_START, B_END,
+    OUR_SKS, CIS_COUNTRIES, AUTO_REDIRECT_BROWSERS,
+    PROXY_RETURN_WINDOW_S, ATTRIBUTION_WINDOW_H,
+)
+from src.db import mongo_tunnel, mp_export
+from src.utils import (
+    oid_from_dt, pct, pct_f, print_section,
+    browser_family, lineage, is_cis, to_df,
+)
 
 
 # ─────────────────────────────────────────────────────────────
 # SECTION 1: Mixpanel data download (reuse all existing caches)
 # ─────────────────────────────────────────────────────────────
 
-def mp_export(event_name: str, from_date: str, to_date: str, cache_key: str) -> list:
-    cache_file = CACHE_DIR / f"{cache_key}.json"
-    if cache_file.exists():
-        print(f"  [cache] Loading {event_name} from {cache_file}")
-        with open(cache_file) as f:
-            return json.load(f)
-    print(f"  [download] Exporting {event_name} {from_date}→{to_date} ...")
-    export_url = "https://data-eu.mixpanel.com/api/2.0/export"
-    resp = requests.get(
-        export_url,
-        auth=HTTPBasicAuth(MP_ACCOUNT, MP_SECRET),
-        params={"project_id": MP_PROJECT, "from_date": from_date,
-                "to_date": to_date, "event": json.dumps([event_name])},
-        timeout=300, stream=True
-    )
-    resp.raise_for_status()
-    records = []
-    for line in resp.iter_lines():
-        if line:
-            records.append(json.loads(line))
-    with open(cache_file, "w") as f:
-        json.dump(records, f)
-    print(f"    → {len(records):,} records")
-    return records
-
-
 def download_mixpanel_data():
     print_section("Mixpanel data (reusing cache)")
     aff_clicks = mp_export("Affiliate Click",    "2026-03-06", "2026-04-03", "aff_click_a")
-    purchases   = mp_export("Purchase",           "2026-02-27", "2026-03-27", "purchase_b")
-    pc_events   = mp_export("Purchase Completed", "2026-02-27", "2026-03-27", "pc_b")
+    purchases  = mp_export("Purchase",           "2026-02-27", "2026-03-27", "purchase_b")
+    pc_events  = mp_export("Purchase Completed", "2026-02-27", "2026-03-27", "pc_b")
     return aff_clicks, purchases, pc_events
-
-
-def to_df(records: list) -> pd.DataFrame:
-    rows = [r.get("properties", {}) for r in records]
-    return pd.DataFrame(rows)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -188,13 +63,12 @@ def run_mongo_problem_a(db) -> dict:
         with open(cache_file, "rb") as f:
             return pickle.load(f)
 
-    # If cache missing, run the full aggregation (same as v1)
+    # If cache missing, run the full aggregation
     events = db["events"]
-    clients_col = db["clients"]
     gsh = db["guestStateHistory"]
 
-    oid_start   = oid_from_dt(A_START)
-    oid_end     = oid_from_dt(A_END)
+    oid_start    = oid_from_dt(A_START)
+    oid_end      = oid_from_dt(A_END)
     oid_lookback = oid_from_dt(A_START - timedelta(days=14))
 
     print("  [mongo] Aggregating events per user...")
@@ -215,7 +89,7 @@ def run_mongo_problem_a(db) -> dict:
         }},
     ]
     user_events = list(events.aggregate(pipeline_users, allowDiskUse=True))
-    print(f"    → {len(user_events):,} distinct users in {time.time()-t0:.1f}s")
+    print(f"    -> {len(user_events):,} distinct users in {time.time()-t0:.1f}s")
 
     print("  [mongo] Counting homepage events per user...")
     t0 = time.time()
@@ -229,7 +103,7 @@ def run_mongo_problem_a(db) -> dict:
     ]
     homepage_data = {str(r["_id"]): r["homepage_events"]
                      for r in events.aggregate(pipeline_hp, allowDiskUse=True)}
-    print(f"    → {len(homepage_data):,} users with homepage visits in {time.time()-t0:.1f}s")
+    print(f"    -> {len(homepage_data):,} users with homepage visits in {time.time()-t0:.1f}s")
 
     print("  [mongo] Client enrichment via pipeline $lookup...")
     t0 = time.time()
@@ -258,7 +132,7 @@ def run_mongo_problem_a(db) -> dict:
             "browser": r.get("browser") or "",
             "client_version": r.get("client_version") or "",
         }
-    print(f"    → enriched {len(client_map):,} users in {time.time()-t0:.1f}s")
+    print(f"    -> enriched {len(client_map):,} users in {time.time()-t0:.1f}s")
 
     print("  [mongo] guestStateHistory aggregation...")
     t0 = time.time()
@@ -285,7 +159,7 @@ def run_mongo_problem_a(db) -> dict:
         }},
     ]
     gsh_pre_window = {r["_id"]: r for r in gsh.aggregate(pipeline_gsh_pre, allowDiskUse=True)}
-    print(f"    → gsh done in {time.time()-t0:.1f}s")
+    print(f"    -> gsh done in {time.time()-t0:.1f}s")
 
     result = {
         "user_events": user_events,
@@ -300,13 +174,11 @@ def run_mongo_problem_a(db) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────
-# SECTION 2b: NEW — CIS proxy return query
+# SECTION 2b: CIS proxy return query
 # ─────────────────────────────────────────────────────────────
 
 def run_cis_proxy_return(db, aff_click_raw: list) -> dict:
     """
-    NEW query (not in v1 cache).
-
     For CIS users who had Affiliate Click in Problem A window:
     check if they had an aliexpress.ru event in MongoDB within
     PROXY_RETURN_WINDOW_S seconds after any of their clicks.
@@ -320,10 +192,9 @@ def run_cis_proxy_return(db, aff_click_raw: list) -> dict:
         with open(cache_file, "rb") as f:
             return pickle.load(f)
 
-    print("  [new] Computing CIS proxy return (NEW — not in v1 cache)...")
+    print("  [new] Computing CIS proxy return...")
 
-    # ── Step 1: CIS Affiliate Click users and their click timestamps ──
-    cis_click_times = {}  # guest_id_str -> [unix_ts_s, ...]
+    cis_click_times = {}
     a_start_ts = A_START.timestamp()
     a_end_ts   = A_END.timestamp()
 
@@ -347,7 +218,6 @@ def run_cis_proxy_return(db, aff_click_raw: list) -> dict:
             pickle.dump(result, f)
         return result
 
-    # ── Step 2: Convert to ObjectIds for MongoDB ──
     cis_oids = []
     for uid_str in cis_click_times:
         try:
@@ -360,11 +230,8 @@ def run_cis_proxy_return(db, aff_click_raw: list) -> dict:
 
     oid_start = oid_from_dt(A_START)
     oid_end   = oid_from_dt(A_END)
-
     events = db["events"]
 
-    # Aggregate: for each CIS click user, collect timestamps of aliexpress.ru visits
-    # Use $toDate on _id to get event timestamp (ObjectId encodes UTC creation time)
     pipeline = [
         {"$match": {
             "_id":       {"$gte": oid_start, "$lte": oid_end},
@@ -373,24 +240,20 @@ def run_cis_proxy_return(db, aff_click_raw: list) -> dict:
         }},
         {"$group": {
             "_id": "$guest_id",
-            # $toLong of $toDate gives milliseconds since epoch
             "visit_ms": {"$push": {"$toLong": {"$toDate": "$_id"}}},
         }},
     ]
 
-    aliexpress_ru_visits = {}  # guest_id_str -> sorted list of unix_ts_s
+    aliexpress_ru_visits = {}
     for r in events.aggregate(pipeline, allowDiskUse=True):
         uid_str = str(r["_id"])
-        # Convert ms → seconds
         visit_times_s = sorted(t // 1000 for t in r["visit_ms"])
         aliexpress_ru_visits[uid_str] = visit_times_s
 
-    elapsed = time.time() - t0
-    print(f"    → {len(aliexpress_ru_visits):,} CIS users had aliexpress.ru visits "
-          f"in {elapsed:.1f}s")
+    print(f"    -> {len(aliexpress_ru_visits):,} CIS users had aliexpress.ru visits "
+          f"in {time.time()-t0:.1f}s")
 
-    # ── Step 3: Match click → proxy return within PROXY_RETURN_WINDOW_S ──
-    proxy_result = {}  # guest_id_str -> bool
+    proxy_result = {}
     for uid, click_times in cis_click_times.items():
         visit_times = aliexpress_ru_visits.get(uid, [])
         has_proxy = False
@@ -407,13 +270,11 @@ def run_cis_proxy_return(db, aff_click_raw: list) -> dict:
         proxy_result[uid] = has_proxy
 
     n_true = sum(1 for v in proxy_result.values() if v)
-    n_total = len(proxy_result)
     print(f"    CIS proxy return (within {PROXY_RETURN_WINDOW_S}s): "
-          f"{n_true:,}/{n_total:,} ({pct(n_true, n_total)})")
+          f"{n_true:,}/{len(proxy_result):,} ({pct(n_true, len(proxy_result))})")
 
     with open(cache_file, "wb") as f:
         pickle.dump(proxy_result, f)
-    print("    [cache] CIS proxy return saved to cis_proxy_return_a.pkl")
     return proxy_result
 
 
@@ -423,15 +284,6 @@ def run_cis_proxy_return(db, aff_click_raw: list) -> dict:
 
 def build_problem_a_df(mongo_data: dict, aff_click_raw: list,
                        cis_proxy_return: dict) -> pd.DataFrame:
-    """
-    Build per-user Problem A dataframe with strict Global/CIS split.
-
-    - Global: has_our_sk_return = GLOBAL_DIRECT signal
-    - CIS:    has_proxy_return  = CIS_PROXY signal (aliexpress.ru within 120s)
-    - a5_missing_tracking: GLOBAL_DIRECT only (sk return without click)
-    - a6_hub_no_global_return: Global — hub but no our sk
-    - a6_hub_no_cis_proxy: CIS — hub but no proxy return
-    """
     print_section("Building Problem A user-level dataframe (corrected v2)")
 
     user_events   = mongo_data["user_events"]
@@ -440,8 +292,7 @@ def build_problem_a_df(mongo_data: dict, aff_click_raw: list,
     gsh_in        = mongo_data["gsh_in_window"]
     gsh_pre       = mongo_data["gsh_pre_window"]
 
-    # Filter Affiliate Click to Problem A UTC window
-    ac_by_user = {}  # guest_id_str -> country (first seen)
+    ac_by_user = {}
     a_start_ts = A_START.timestamp()
     a_end_ts   = A_END.timestamp()
 
@@ -461,21 +312,18 @@ def build_problem_a_df(mongo_data: dict, aff_click_raw: list,
     for ue in user_events:
         guest_id = str(ue["_id"])
 
-        # Eligible check
         hp_count   = homepage_data.get(guest_id, 0)
         prod_count = ue.get("product_events", 0)
         has_product  = prod_count > 0
         has_homepage = hp_count > 0
         is_eligible  = has_product or has_homepage
 
-        # Client enrichment
         cli        = client_map.get(guest_id, {})
         raw_browser = cli.get("browser", "")
         bf         = browser_family(raw_browser)
         lg         = lineage(bf)
         cv         = cli.get("client_version", "")
 
-        # Config: prefer in-window, fall back to pre-window
         conf = gsh_in.get(guest_id) or gsh_pre.get(guest_id)
         if conf:
             cfg_value  = conf.get("latest_value", False)
@@ -488,58 +336,37 @@ def build_problem_a_df(mongo_data: dict, aff_click_raw: list,
 
         country     = (ue.get("country") or "").upper()
         user_is_cis = is_cis(country)
-
         reached_hub = guest_id in ac_users
 
-        # ── GLOBAL_DIRECT signal: owned sk in MongoDB events ──
         has_our_sk_return     = ue.get("our_sk_events", 0) > 0
         has_any_sk_return     = ue.get("any_sk_events", 0) > 0
         has_foreign_sk_return = ue.get("foreign_sk_events", 0) > 0
 
-        # ── CIS_PROXY signal: aliexpress.ru visit within 120s of click ──
-        # Only meaningful for CIS users who reached hub.
-        # For Global users: NOT_OBSERVABLE_WITH_CURRENT_DATA (different mechanism).
         has_proxy_return = cis_proxy_return.get(guest_id, False) if user_is_cis else None
 
-        # A5: Missing Mixpanel click tracking (GLOBAL_DIRECT only)
-        # sk return observed in events, but no Affiliate Click in Mixpanel
-        a5_missing_tracking = (not user_is_cis) and has_our_sk_return and not reached_hub
-
-        # A6: Reached hub but no post-hub signal
+        a5_missing_tracking    = (not user_is_cis) and has_our_sk_return and not reached_hub
         a6_hub_no_global_return = (not user_is_cis) and reached_hub and not has_our_sk_return
         a6_hub_no_cis_proxy     = user_is_cis and reached_hub and (has_proxy_return is False)
 
         rows.append({
-            "guest_id":              guest_id,
-            "country":               country,
-            "is_cis":                user_is_cis,
-            "region":                "CIS" if user_is_cis else "Global",
-            "total_events":          ue.get("total_events", 0),
-            "product_events":        prod_count,
-            "homepage_events":       hp_count,
-            "has_product":           has_product,
-            "has_homepage":          has_homepage,
-            "is_eligible":           is_eligible,
-            "browser_raw":           raw_browser,
-            "browser_family":        bf,
-            "lineage":               lg,
-            "client_version":        cv,
-            "cfg_value":             cfg_value,
-            "cfg_domain":            cfg_domain,
-            "cfg_region":            cfg_region,
-            "has_cfg":               conf is not None,
-            "has_usable_cfg":        cfg_value is True,
-            "reached_hub":           reached_hub,
-            # Global signals (GLOBAL_DIRECT)
-            "has_our_sk_return":     has_our_sk_return,
-            "has_any_sk_return":     has_any_sk_return,
+            "guest_id": guest_id, "country": country,
+            "is_cis": user_is_cis, "region": "CIS" if user_is_cis else "Global",
+            "total_events": ue.get("total_events", 0),
+            "product_events": prod_count, "homepage_events": hp_count,
+            "has_product": has_product, "has_homepage": has_homepage,
+            "is_eligible": is_eligible,
+            "browser_raw": raw_browser, "browser_family": bf,
+            "lineage": lg, "client_version": cv,
+            "cfg_value": cfg_value, "cfg_domain": cfg_domain, "cfg_region": cfg_region,
+            "has_cfg": conf is not None, "has_usable_cfg": cfg_value is True,
+            "reached_hub": reached_hub,
+            "has_our_sk_return": has_our_sk_return,
+            "has_any_sk_return": has_any_sk_return,
             "has_foreign_sk_return": has_foreign_sk_return,
-            # CIS signal (CIS_PROXY) — None for Global users
-            "has_proxy_return":      has_proxy_return,
-            # Derived flags
-            "a5_missing_tracking":   a5_missing_tracking,          # GLOBAL_DIRECT
-            "a6_hub_no_global_ret":  a6_hub_no_global_return,      # GLOBAL_DIRECT
-            "a6_hub_no_cis_proxy":   a6_hub_no_cis_proxy,          # CIS_PROXY
+            "has_proxy_return": has_proxy_return,
+            "a5_missing_tracking": a5_missing_tracking,
+            "a6_hub_no_global_ret": a6_hub_no_global_return,
+            "a6_hub_no_cis_proxy": a6_hub_no_cis_proxy,
         })
 
     df = pd.DataFrame(rows)
@@ -553,15 +380,13 @@ def build_problem_a_df(mongo_data: dict, aff_click_raw: list,
 
 
 # ─────────────────────────────────────────────────────────────
-# SECTION 4: Problem A — Dual Funnel & Segmentation (corrected)
+# SECTION 4: Problem A — Dual Funnel & Segmentation
 # ─────────────────────────────────────────────────────────────
 
 def analyze_problem_a(df: pd.DataFrame) -> dict:
     print_section("PROBLEM A — Missing Affiliate Click (corrected v2)")
 
     results = {}
-
-    # ── Overall funnel ─────────────────────────────────────────
     n_total    = len(df)
     n_eligible = df["is_eligible"].sum()
     n_hub      = df[df["is_eligible"]]["reached_hub"].sum()
@@ -575,12 +400,11 @@ def analyze_problem_a(df: pd.DataFrame) -> dict:
     results["n_eligible"] = int(n_eligible)
     results["n_hub"] = int(n_hub)
 
-    # ── A1. Dual funnel: Global (GLOBAL_DIRECT) vs CIS (CIS_PROXY) ────
+    # ── A1. Dual funnel: Global vs CIS ────────────────────────
     print("\n── A1. Dual Funnel by Region ──")
 
     global_df = df[~df["is_cis"]]
     cis_df    = df[df["is_cis"]]
-
     elig_g = global_df[global_df["is_eligible"]]
     elig_c = cis_df[cis_df["is_eligible"]]
 
@@ -604,8 +428,7 @@ def analyze_problem_a(df: pd.DataFrame) -> dict:
     ]
     print(f"\n  [GLOBAL_DIRECT] Global / Portals funnel ({ng_total:,} users)")
     print(tabulate(global_funnel,
-        headers=["Stage", "Users", "% of eligible", "Observability"],
-        tablefmt="pipe"))
+        headers=["Stage", "Users", "% of eligible", "Observability"], tablefmt="pipe"))
 
     results["global"] = {
         "n_total": int(ng_total), "n_eligible": int(ng_elig),
@@ -618,7 +441,7 @@ def analyze_problem_a(df: pd.DataFrame) -> dict:
     nc_elig   = len(elig_c)
     nc_cfg    = elig_c["has_usable_cfg"].sum()
     nc_hub    = elig_c["reached_hub"].sum()
-    nc_proxy  = elig_c["has_proxy_return"].eq(True).sum()   # CIS_PROXY signal
+    nc_proxy  = elig_c["has_proxy_return"].eq(True).sum()
     nc_a6     = elig_c["a6_hub_no_cis_proxy"].sum()
 
     cis_funnel = [
@@ -626,18 +449,16 @@ def analyze_problem_a(df: pd.DataFrame) -> dict:
         ["2. Eligible (product/homepage)",         nc_elig,  pct(nc_elig, nc_total),  "CIS_PROXY"],
         ["3. Usable config (value=True)",          nc_cfg,   pct(nc_cfg, nc_elig),    "CIS_PROXY"],
         ["4. Reached hub (Affiliate Click)",        nc_hub,   pct(nc_hub, nc_elig),    "CIS_PROXY"],
-        ["5. Proxy return to aliexpress.ru (≤120s)",nc_proxy, pct(nc_proxy, nc_elig), "CIS_PROXY"],
+        ["5. Proxy return to aliexpress.ru (<=120s)",nc_proxy, pct(nc_proxy, nc_elig), "CIS_PROXY"],
         ["5a. Affiliate params preserved",          "—",     "—",                     "NOT_OBSERVABLE_WITH_CURRENT_DATA"],
         ["   A6: hub reached, no proxy return",    nc_a6,    pct(nc_a6, nc_elig),     "CIS_PROXY"],
     ]
     print(f"\n  [CIS_PROXY] CIS / EPN funnel ({nc_total:,} users)")
     print(tabulate(cis_funnel,
-        headers=["Stage", "Users", "% of eligible", "Observability"],
-        tablefmt="pipe"))
+        headers=["Stage", "Users", "% of eligible", "Observability"], tablefmt="pipe"))
 
     print(f"\n  NOTE: CIS proxy return = aliexpress.ru event within {PROXY_RETURN_WINDOW_S}s of Affiliate Click.")
     print(f"  NOTE: Whether EPN affiliate params were preserved is NOT_OBSERVABLE_WITH_CURRENT_DATA.")
-    print(f"        utm_source/utm_medium/utm_campaign are not stored in MongoDB events.")
 
     results["cis"] = {
         "n_total": int(nc_total), "n_eligible": int(nc_elig),
@@ -645,7 +466,7 @@ def analyze_problem_a(df: pd.DataFrame) -> dict:
         "n_proxy_return": int(nc_proxy), "n_a6_no_proxy": int(nc_a6),
     }
 
-    # ── A2. Gap decomposition (eligible, overall) ───────────────────
+    # ── A2. Gap decomposition ─────────────────────────────────
     print("\n── A2. Gap decomposition — why didn't eligible users reach hub? ──")
     elig = df[df["is_eligible"]].copy()
     n_no_cfg      = (~elig["has_cfg"]).sum()
@@ -662,13 +483,12 @@ def analyze_problem_a(df: pd.DataFrame) -> dict:
     ]
     print(tabulate(gap_table, headers=["Gap bucket", "Users", "% of gap"], tablefmt="pipe"))
     results["gap"] = {
-        "n_gap_total": int(n_gap_total),
-        "n_no_cfg": int(n_no_cfg), "n_bad_cfg": int(n_bad_cfg),
-        "n_good_no_hub": int(n_good_no_hub),
+        "n_gap_total": int(n_gap_total), "n_no_cfg": int(n_no_cfg),
+        "n_bad_cfg": int(n_bad_cfg), "n_good_no_hub": int(n_good_no_hub),
         "n_a5": int(elig["a5_missing_tracking"].sum()),
     }
 
-    # ── A3. Browser / lineage split ─────────────────────────────────
+    # ── A3. Browser / lineage split ───────────────────────────
     print("\n── A3. Browser lineage (eligible users) ──")
     lineage_stats = []
     for lg, g in elig.groupby("lineage"):
@@ -687,7 +507,7 @@ def analyze_problem_a(df: pd.DataFrame) -> dict:
                  "Global sk-ret [GD]","% sk-ret","CIS proxy-ret [CP]","% proxy-ret"],
         tablefmt="pipe"))
 
-    # ── A4. Auto-redirect: Firefox vs Edge (GLOBAL_DIRECT + CIS_PROXY) ─
+    # ── A4. Auto-redirect: Firefox vs Edge ────────────────────
     print("\n── A4. Auto-redirect: Firefox vs Edge (eligible) ──")
     auto = elig[elig["lineage"] == "auto-redirect"]
     auto_stats = []
@@ -711,19 +531,15 @@ def analyze_problem_a(df: pd.DataFrame) -> dict:
     else:
         print("  No auto-redirect users found.")
 
-    # ── A5. By hub domain (Global only — sk-return is GLOBAL_DIRECT) ──
+    # ── A5. By hub domain ─────────────────────────────────────
     print("\n── A5. By hub domain — Global only (GLOBAL_DIRECT) ──")
-    print("  NOTE: Hub sk-return comparison is only valid for Global traffic.")
-    print("        CIS/EPN return uses utm_*, not sk. Hub comparison for CIS = NOT_OBSERVABLE_WITH_CURRENT_DATA.")
     usable_global = elig[elig["has_usable_cfg"] & ~elig["is_cis"]].copy()
     hub_global = []
     for domain, g in usable_global.groupby("cfg_domain"):
         n = len(g)
         hub_global.append([
-            domain, n,
-            g["reached_hub"].sum(), pct(g["reached_hub"].sum(), n),
-            g["has_our_sk_return"].sum(), pct(g["has_our_sk_return"].sum(), n),
-            "GLOBAL_DIRECT",
+            domain, n, g["reached_hub"].sum(), pct(g["reached_hub"].sum(), n),
+            g["has_our_sk_return"].sum(), pct(g["has_our_sk_return"].sum(), n), "GLOBAL_DIRECT",
         ])
     hub_global.sort(key=lambda x: -x[1])
     if hub_global:
@@ -737,10 +553,8 @@ def analyze_problem_a(df: pd.DataFrame) -> dict:
     for domain, g in usable_cis.groupby("cfg_domain"):
         n = len(g)
         hub_cis.append([
-            domain, n,
-            g["reached_hub"].sum(), pct(g["reached_hub"].sum(), n),
-            g["has_proxy_return"].eq(True).sum(), pct(g["has_proxy_return"].eq(True).sum(), n),
-            "CIS_PROXY",
+            domain, n, g["reached_hub"].sum(), pct(g["reached_hub"].sum(), n),
+            g["has_proxy_return"].eq(True).sum(), pct(g["has_proxy_return"].eq(True).sum(), n), "CIS_PROXY",
         ])
     hub_cis.sort(key=lambda x: -x[1])
     if hub_cis:
@@ -753,7 +567,7 @@ def analyze_problem_a(df: pd.DataFrame) -> dict:
     results["hub_global"] = [{"domain": r[0], "n": r[1], "n_hub": r[2], "n_sk_ret": r[4]} for r in hub_global]
     results["hub_cis"]    = [{"domain": r[0], "n": r[1], "n_hub": r[2], "n_proxy": r[4]} for r in hub_cis]
 
-    # ── A6. By country (eligible, min 50 users) ──────────────────────
+    # ── A6. By country ────────────────────────────────────────
     print("\n── A6. Top countries (eligible, min 50 users) ──")
     country_stats = []
     for c, g in elig.groupby("country"):
@@ -761,7 +575,7 @@ def analyze_problem_a(df: pd.DataFrame) -> dict:
         if n < 50:
             continue
         cis_flag = g["is_cis"].all()
-        region_label = "CIS" if g["is_cis"].all() else ("Mixed" if g["is_cis"].any() else "Global")
+        region_label = "CIS" if cis_flag else ("Mixed" if g["is_cis"].any() else "Global")
         obs = "CIS_PROXY" if cis_flag else "GLOBAL_DIRECT"
         hub_n = g["reached_hub"].sum()
         if cis_flag:
@@ -776,7 +590,7 @@ def analyze_problem_a(df: pd.DataFrame) -> dict:
         headers=["Country","Region","Users","Reached hub","% hub","Return signal","% return","Obs."],
         tablefmt="pipe"))
 
-    # ── A7. Client version (top 15, eligible) ────────────────────────
+    # ── A7. Client version ────────────────────────────────────
     print("\n── A7. Top client versions (eligible, min 30 users) ──")
     ver_stats = []
     for v, g in elig.groupby("client_version"):
@@ -788,7 +602,7 @@ def analyze_problem_a(df: pd.DataFrame) -> dict:
     print(tabulate(ver_stats[:15],
         headers=["Version","Users","Reached hub","% hub"], tablefmt="pipe"))
 
-    # ── A8. Config coverage by region/lineage ──────────────────────────
+    # ── A8. Config coverage by region/lineage ─────────────────
     print("\n── A8. Config coverage by region and lineage ──")
     for region_label, mask in [("Global", ~elig["is_cis"]), ("CIS", elig["is_cis"])]:
         g_reg = elig[mask]
@@ -798,7 +612,7 @@ def analyze_problem_a(df: pd.DataFrame) -> dict:
                   f"has cfg: {g_lin['has_cfg'].sum():,} ({pct(g_lin['has_cfg'].sum(), n)}) | "
                   f"usable cfg: {g_lin['has_usable_cfg'].sum():,} ({pct(g_lin['has_usable_cfg'].sum(), n)})")
 
-    # ── A9. Page type split ────────────────────────────────────────────
+    # ── A9. Page type split ───────────────────────────────────
     print("\n── A9. Eligible by page type ──")
     for label, mask in [
         ("Product only",  elig["has_product"] & ~elig["has_homepage"]),
@@ -838,7 +652,7 @@ def build_problem_b_df(purchases: list, pc_events: list):
 
 def match_purchases(pc_b: pd.DataFrame, pur_b: pd.DataFrame,
                     window_minutes: int = 10) -> pd.DataFrame:
-    print(f"\n  Matching PC → Purchase (user + ±{window_minutes} min)...")
+    print(f"\n  Matching PC -> Purchase (user + +/-{window_minutes} min)...")
     pur_by_user = {}
     for _, row in pur_b.iterrows():
         uid = str(row.get("$user_id", "") or "")
@@ -865,11 +679,6 @@ def match_purchases(pc_b: pd.DataFrame, pur_b: pd.DataFrame,
 
 
 def build_ac_72h_lookup(aff_click_raw: list) -> dict:
-    """
-    Build lookup: guest_id_str -> sorted list of AC unix timestamps.
-    Used for 72h lookback check in Problem B CIS analysis.
-    Coverage: Mar 6 – Apr 3 (may miss lookback for PC events Feb 27 – Mar 8).
-    """
     ac_by_user = {}
     for ev in aff_click_raw:
         props = ev.get("properties", ev) if "properties" in ev else ev
@@ -883,26 +692,17 @@ def build_ac_72h_lookup(aff_click_raw: list) -> dict:
 
 
 def assign_reason_codes(pc_b: pd.DataFrame, aff_click_raw: list) -> pd.DataFrame:
-    """
-    Assign primary reason codes with strict Global/CIS split.
-
-    Global (GLOBAL_DIRECT): sk-based logic
-    CIS (CIS_PROXY): limited-observability codes only — NO sk-based codes
-    """
     pc_b = pc_b.copy()
 
-    # Normalize affiliate state fields (from Purchase Completed event properties)
     pc_b["last_sk"]   = pc_b.get("last_sk",   pd.Series(dtype=str)).fillna("").astype(str)
     pc_b["last_af"]   = pc_b.get("last_af",   pd.Series(dtype=str)).fillna("").astype(str)
     pc_b["sk"]        = pc_b.get("sk",         pd.Series(dtype=str)).fillna("").astype(str)
     pc_b["af"]        = pc_b.get("af",         pd.Series(dtype=str)).fillna("").astype(str)
     pc_b["cashback_list"] = pc_b.get("cashback_list", pd.Series(dtype=object))
 
-    # Region classification
     pc_b["is_cis_pc"] = pc_b.get("mp_country_code", pd.Series(dtype=str)).apply(
         lambda x: is_cis(str(x) if x else ""))
 
-    # Global sk-based flags
     pc_b["has_our_last_sk"]     = pc_b["last_sk"].isin(OUR_SKS)
     pc_b["has_our_current_sk"]  = pc_b["sk"].isin(OUR_SKS)
     pc_b["has_any_our_sk"]      = pc_b["has_our_last_sk"] | pc_b["has_our_current_sk"]
@@ -912,12 +712,10 @@ def assign_reason_codes(pc_b: pd.DataFrame, aff_click_raw: list) -> pd.DataFrame
     pc_b["has_last_af"]         = pc_b["last_af"] != ""
     pc_b["has_cashback"]        = pc_b["cashback_list"].notna() & (pc_b["cashback_list"] != "")
 
-    # CIS: 72h AC lookup from available Mixpanel data
     ac_72h = build_ac_72h_lookup(aff_click_raw)
     attribution_window_s = ATTRIBUTION_WINDOW_H * 3600
 
     def had_ac_in_72h(row) -> bool:
-        """Check if user had Affiliate Click within 72h before this PC event."""
         uid = str(row.get("user_id", "") or "")
         pc_ts = int(row["time_utc"].timestamp())
         for ac_ts in ac_72h.get(uid, []):
@@ -925,9 +723,7 @@ def assign_reason_codes(pc_b: pd.DataFrame, aff_click_raw: list) -> pd.DataFrame
                 return True
         return False
 
-    # ── Assign reason codes ──────────────────────────────────────────
     def assign_global_code(row) -> str:
-        """GLOBAL_DIRECT reason codes (sk-based)."""
         if row["matched"]:
             return "MATCHED"
         if not row["has_any_our_sk"]:
@@ -941,17 +737,11 @@ def assign_reason_codes(pc_b: pd.DataFrame, aff_click_raw: list) -> pd.DataFrame
         return "UNKNOWN"
 
     def assign_cis_code(row) -> str:
-        """
-        CIS_PROXY reason codes — limited observability.
-        Do NOT use sk-based logic for CIS traffic.
-        """
         if row["matched"]:
             return "CIS_LIKELY_DELAYED_POSTBACK"
-        # Check if user had Affiliate Click in available 72h window
         has_ac = had_ac_in_72h(row)
         if not has_ac:
             return "CIS_NO_HUB_REACH_OBSERVED"
-        # Had AC but no matched Purchase
         return "CIS_PURCHASE_COMPLETED_WITHOUT_PURCHASE_UNDER_LIMITED_OBSERVABILITY"
 
     codes = []
@@ -962,28 +752,19 @@ def assign_reason_codes(pc_b: pd.DataFrame, aff_click_raw: list) -> pd.DataFrame
             codes.append(assign_global_code(row))
 
     pc_b["reason_code"] = codes
-
-    # Observability label
-    def obs_label(code: str) -> str:
-        if code.startswith("CIS_"):
-            return "CIS_PROXY"
-        if code == "MATCHED":
-            return "GLOBAL_DIRECT"
-        return "GLOBAL_DIRECT"
-
-    pc_b["observability"] = pc_b["reason_code"].apply(obs_label)
+    pc_b["observability"] = pc_b["reason_code"].apply(
+        lambda code: "CIS_PROXY" if code.startswith("CIS_") else "GLOBAL_DIRECT")
     return pc_b
 
 
 # ─────────────────────────────────────────────────────────────
-# SECTION 6: Problem B analysis (corrected)
+# SECTION 6: Problem B analysis
 # ─────────────────────────────────────────────────────────────
 
 def analyze_problem_b(pc_b: pd.DataFrame, pur_b: pd.DataFrame) -> dict:
     print_section("PROBLEM B — Purchase Completed without Purchase (corrected v2)")
 
     results = {}
-
     n_pc  = len(pc_b)
     n_pur = len(pur_b)
     n_raw_gap = n_pc - n_pur
@@ -995,26 +776,19 @@ def analyze_problem_b(pc_b: pd.DataFrame, pur_b: pd.DataFrame) -> dict:
     n_matched   = pc_b["matched"].sum()
     n_unmatched = (~pc_b["matched"]).sum()
     print(f"\n  10-min user+time match:")
-    print(f"    Matched PC→Purchase:  {n_matched:,} ({pct(n_matched, n_pc)})")
+    print(f"    Matched PC->Purchase:  {n_matched:,} ({pct(n_matched, n_pc)})")
     print(f"    Unmatched (gap):      {n_unmatched:,} ({pct(n_unmatched, n_pc)})")
     print(f"\n  Primary metric = raw event gap ({n_raw_gap:,}).")
-    print(f"  UNKNOWN/delayed bucket ≈ raw gap confirms most unmatched = delayed postbacks.")
 
-    results["n_pc"] = int(n_pc)
-    results["n_pur"] = int(n_pur)
-    results["n_raw_gap"] = int(n_raw_gap)
-    results["n_matched"] = int(n_matched)
-    results["n_unmatched"] = int(n_unmatched)
+    results.update({"n_pc": int(n_pc), "n_pur": int(n_pur), "n_raw_gap": int(n_raw_gap),
+                    "n_matched": int(n_matched), "n_unmatched": int(n_unmatched)})
 
-    # ── B1. CIS vs Global split ───────────────────────────────────────
+    # ── B1. CIS vs Global split ───────────────────────────────
     print("\n── B1. CIS vs Global split ──")
     cis_pc    = pc_b[pc_b["is_cis_pc"]]
     global_pc = pc_b[~pc_b["is_cis_pc"]]
 
-    for label, gdf, obs in [
-        ("Global [GLOBAL_DIRECT]", global_pc, "GLOBAL_DIRECT"),
-        ("CIS [CIS_PROXY]",        cis_pc,    "CIS_PROXY"),
-    ]:
+    for label, gdf in [("Global [GLOBAL_DIRECT]", global_pc), ("CIS [CIS_PROXY]", cis_pc)]:
         n = len(gdf)
         n_match = gdf["matched"].sum()
         n_unmatch = (~gdf["matched"]).sum()
@@ -1022,50 +796,38 @@ def analyze_problem_b(pc_b: pd.DataFrame, pur_b: pd.DataFrame) -> dict:
               f"matched: {n_match:,} ({pct(n_match,n)}) | "
               f"unmatched: {n_unmatch:,} ({pct(n_unmatch,n)})")
 
-    results["cis_pc"]    = int(len(cis_pc))
-    results["global_pc"] = int(len(global_pc))
-    results["cis_unmatched"]    = int((~cis_pc["matched"]).sum())
-    results["global_unmatched"] = int((~global_pc["matched"]).sum())
+    results.update({"cis_pc": int(len(cis_pc)), "global_pc": int(len(global_pc)),
+                    "cis_unmatched": int((~cis_pc["matched"]).sum()),
+                    "global_unmatched": int((~global_pc["matched"]).sum())})
 
-    # ── B2. Global reason codes (GLOBAL_DIRECT) ───────────────────────
+    # ── B2. Global reason codes ───────────────────────────────
     print("\n── B2. Global reason codes [GLOBAL_DIRECT] ──")
     global_unmatched = global_pc[~global_pc["matched"]]
     n_global_unmatched = len(global_unmatched)
     rc_global = []
     for code, g in global_unmatched.groupby("reason_code"):
-        rc_global.append([code, len(g),
-                          pct(len(g), n_global_unmatched),
-                          pct(len(g), len(global_pc)),
-                          "GLOBAL_DIRECT"])
+        rc_global.append([code, len(g), pct(len(g), n_global_unmatched),
+                          pct(len(g), len(global_pc)), "GLOBAL_DIRECT"])
     rc_global.sort(key=lambda x: -x[1])
     print(tabulate(rc_global,
         headers=["Reason code","Count","% of unmatched Global","% of all Global PC","Observability"],
         tablefmt="pipe"))
-
     results["global_reason_codes"] = [{"code": r[0], "n": r[1]} for r in rc_global]
 
-    # ── B3. CIS reason codes (CIS_PROXY) ─────────────────────────────
+    # ── B3. CIS reason codes ─────────────────────────────────
     print("\n── B3. CIS reason codes [CIS_PROXY] ──")
-    print("  NOTE: No sk-based codes used for CIS. EPN attribution is NOT_OBSERVABLE_WITH_CURRENT_DATA.")
-    print(f"  NOTE: AC coverage for CIS is partial (cache covers Mar 6–Apr 3).")
-    print(f"        PC events before Mar 9 may have incomplete 72h AC lookback.")
-    cis_all = cis_pc.copy()
-    n_cis_total = len(cis_all)
+    print("  NOTE: No sk-based codes used for CIS.")
+    n_cis_total = len(cis_pc)
     rc_cis = []
-    for code, g in cis_all.groupby("reason_code"):
-        rc_cis.append([code, len(g),
-                       pct(len(g), n_cis_total),
-                       "CIS_PROXY"])
+    for code, g in cis_pc.groupby("reason_code"):
+        rc_cis.append([code, len(g), pct(len(g), n_cis_total), "CIS_PROXY"])
     rc_cis.sort(key=lambda x: -x[1])
     print(tabulate(rc_cis,
-        headers=["Reason code","Count","% of CIS PC","Observability"],
-        tablefmt="pipe"))
+        headers=["Reason code","Count","% of CIS PC","Observability"], tablefmt="pipe"))
     print(f"\n  CIS overwrite analysis: NOT_OBSERVABLE_WITH_CURRENT_DATA")
-    print(f"  (utm_source/utm_medium/utm_campaign not stored in MongoDB events)")
-
     results["cis_reason_codes"] = [{"code": r[0], "n": r[1]} for r in rc_cis]
 
-    # ── B4. Global attribution state in unmatched ─────────────────────
+    # ── B4. Global attribution state ──────────────────────────
     print("\n── B4. Global attribution state in unmatched [GLOBAL_DIRECT] ──")
     attr_table = [
         ["Has our last_sk",          global_unmatched["has_our_last_sk"].sum(),     pct(global_unmatched["has_our_last_sk"].sum(), n_global_unmatched)],
@@ -1077,7 +839,6 @@ def analyze_problem_b(pc_b: pd.DataFrame, pur_b: pd.DataFrame) -> dict:
         ["Has cashback trace",       global_unmatched["has_cashback"].sum(),        pct(global_unmatched["has_cashback"].sum(), n_global_unmatched)],
     ]
     print(tabulate(attr_table, headers=["Attribute","Count","% of unmatched Global"], tablefmt="pipe"))
-
     results["global_attr"] = {
         "has_our_sk": int(global_unmatched["has_any_our_sk"].sum()),
         "has_foreign_sk": int(global_unmatched["has_foreign_sk"].sum()),
@@ -1086,7 +847,7 @@ def analyze_problem_b(pc_b: pd.DataFrame, pur_b: pd.DataFrame) -> dict:
         "n_unmatched": int(n_global_unmatched),
     }
 
-    # ── B5. Matching sensitivity ──────────────────────────────────────
+    # ── B5. Matching sensitivity ──────────────────────────────
     print("\n── B5. Matching sensitivity (different windows) ──")
     pur_by_user = {}
     for _, row in pur_b.iterrows():
@@ -1105,15 +866,12 @@ def analyze_problem_b(pc_b: pd.DataFrame, pur_b: pd.DataFrame) -> dict:
                 if abs((pc_ts - pur_ts).total_seconds()) <= win.total_seconds():
                     n_match += 1
                     break
-        sensitivity_rows.append([f"±{win_min} min", n_match, pct(n_match, n_pc),
+        sensitivity_rows.append([f"+/-{win_min} min", n_match, pct(n_match, n_pc),
                                   n_pc - n_match, pct(n_pc - n_match, n_pc)])
     print(tabulate(sensitivity_rows,
         headers=["Window","Matched","% matched","Unmatched","% unmatched"], tablefmt="pipe"))
-    print(f"  Net raw gap ({n_raw_gap:,}) is the primary metric — not the matching result.")
 
-    results["sensitivity"] = [{"window_min": int(r[0].strip("±min ")), "matched": r[1]} for r in sensitivity_rows]
-
-    # ── B6. By browser (unmatched PC) ────────────────────────────────
+    # ── B6. By browser ────────────────────────────────────────
     print("\n── B6. Unmatched PC by browser ──")
     unmatched = pc_b[~pc_b["matched"]]
     browser_stats_b = []
@@ -1128,7 +886,7 @@ def analyze_problem_b(pc_b: pd.DataFrame, pur_b: pd.DataFrame) -> dict:
     print(tabulate(browser_stats_b,
         headers=["Browser","Unmatched","All PC","Loss %","Top reason"], tablefmt="pipe"))
 
-    # ── B7. By country (unmatched, min 30 total PC) ──────────────────
+    # ── B7. By country ────────────────────────────────────────
     print("\n── B7. Loss rate by country (min 30 total PC) ──")
     c_stats = []
     for c, g in pc_b.groupby("mp_country_code"):
@@ -1144,9 +902,7 @@ def analyze_problem_b(pc_b: pd.DataFrame, pur_b: pd.DataFrame) -> dict:
         headers=["Country","Region","Total PC","Unmatched","Loss %","Observability"],
         tablefmt="pipe"))
 
-    results["country_stats"] = [{"country": r[0], "region": r[1], "n": r[2], "unmatched": r[3]} for r in c_stats[:10]]
-
-    # ── B8. Global last_sk distribution in unmatched with our sk ──────
+    # ── B8. Global last_sk distribution ───────────────────────
     print("\n── B8. Our last_sk distribution in Global unmatched [GLOBAL_DIRECT] ──")
     ours_global = global_unmatched[global_unmatched["has_our_last_sk"]]
     if len(ours_global) > 0:
@@ -1155,15 +911,12 @@ def analyze_problem_b(pc_b: pd.DataFrame, pur_b: pd.DataFrame) -> dict:
     else:
         print("  None found.")
 
-    # ── B9. CIS: observability caveat summary ─────────────────────────
+    # ── B9. CIS observability summary ─────────────────────────
     print("\n── B9. CIS observability summary [NOT_OBSERVABLE_WITH_CURRENT_DATA] ──")
     print(f"  CIS total PC:              {len(cis_pc):,}")
     print(f"  CIS matched to Purchase:   {cis_pc['matched'].sum():,} ({pct(cis_pc['matched'].sum(), len(cis_pc))})")
     print(f"  CIS unmatched:             {(~cis_pc['matched']).sum():,} ({pct((~cis_pc['matched']).sum(), len(cis_pc))})")
     print(f"  CIS EPN affiliate state:   NOT_OBSERVABLE_WITH_CURRENT_DATA")
-    print(f"  CIS overwrite detection:   NOT_OBSERVABLE_WITH_CURRENT_DATA")
-    print(f"  CIS proxy return (per PC): NOT_OBSERVABLE_WITH_CURRENT_DATA (would require additional MongoDB query)")
-    print(f"  Available CIS signal:      hub reach (Affiliate Click) — partial 72h coverage")
 
     return results
 
@@ -1176,34 +929,27 @@ def print_caveats():
     print_section("DATA QUALITY & OBSERVABILITY CAVEATS")
     caveats = [
         ("1", "CIS EPN ATTRIBUTION NOT OBSERVABLE",
-         "MongoDB events do not store utm_source/utm_medium/utm_campaign. "
-         "AliHelper EPN return (utm_source=aerkol, utm_campaign=*_7685) is not directly observable "
-         "in historical data. All CIS affiliate-state conclusions = NOT_OBSERVABLE_WITH_CURRENT_DATA."),
+         "MongoDB events do not store utm_source/utm_medium/utm_campaign."),
         ("2", "CIS PROXY RETURN IS INDIRECT",
-         "Proxy return (aliexpress.ru event within 120s of Affiliate Click) proves site return, "
-         "NOT that EPN affiliate params were preserved. Labeled CIS_PROXY, not CIS_DIRECT."),
+         "Proxy return proves site return, NOT that EPN affiliate params were preserved."),
         ("3", "AC COVERAGE PARTIAL FOR EARLY PROBLEM B WINDOW",
-         "Affiliate Click cache covers Mar 6–Apr 3. PC events from Feb 27–Mar 8 have "
-         "incomplete 72h AC lookback. CIS_NO_HUB_REACH_OBSERVED may be overstated for that period."),
+         "AC cache covers Mar 6-Apr 3. PC events from Feb 27-Mar 8 have incomplete 72h lookback."),
         ("4", "CASHBACK OBSERVABILITY PARTIAL",
          "cashback_list in PC is client-reported. Cashback site visits not logged to backend."),
         ("5", "NO order_id IN MOST PURCHASE COMPLETED",
-         "Primary matching is user+time proximity (±10 min). Ambiguous matches treated as matched."),
+         "Primary matching is user+time proximity (+/-10 min)."),
         ("6", "noLogUrls EXCLUSIONS",
-         "Checkout/order paths may not appear in events due to config-level URL exclusions. "
-         "Absence of checkout events ≠ no user activity."),
+         "Checkout/order paths may not appear in events due to config-level URL exclusions."),
         ("7", "guestStateHistory = CONFIG DELIVERY, NOT USAGE",
          "gsh records confirm config was delivered, not that a redirect was executed."),
         ("8", "NO DIRECT AUTO-REDIRECT LOG",
-         "Client-side webNavigation.onBeforeNavigate is not logged. Auto-redirect opportunity "
-         "reconstructed from eligible visit + browser lineage + 30-min rule approximation."),
+         "Client-side webNavigation.onBeforeNavigate is not logged."),
         ("9", "ONLY _id INDEX",
-         "events and guestStateHistory have no field-level indexes. All queries use _id-based range. "
-         "Aggregation scans the full window."),
+         "events and guestStateHistory have no field-level indexes."),
         ("10", "SINGLE EVENT TYPE",
          "All events are type='watcher'. No native session boundaries."),
         ("11", "PROBLEM B WINDOW AVOIDS INCIDENT",
-         "Apr 1 CIS postback incident excluded. B window is Feb 27–Mar 26 (mature cohort)."),
+         "Apr 1 CIS postback incident excluded. B window is Feb 27-Mar 26."),
     ]
     for num, title, body in caveats:
         print(f"\n  [{num}] {title}")
@@ -1211,16 +957,14 @@ def print_caveats():
 
 
 # ─────────────────────────────────────────────────────────────
-# SECTION 8: Save structured results to JSON
+# SECTION 8: Save structured results
 # ─────────────────────────────────────────────────────────────
 
 def save_results(results_a: dict, results_b: dict, df_a: pd.DataFrame, pc_b: pd.DataFrame):
-    """Save key metrics to JSON for HTML report generation."""
     out = {
         "run_date": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "problem_a": results_a,
         "problem_b": results_b,
-        # Additional segment data
         "pa_cis_users": int(df_a["is_cis"].sum()),
         "pa_global_users": int((~df_a["is_cis"]).sum()),
         "pb_cis_pc": int(pc_b["is_cis_pc"].sum()),
@@ -1251,42 +995,36 @@ def print_ranked_causes(df_a: pd.DataFrame, pc_b: pd.DataFrame, results: dict):
     a = results["problem_a"]
     b = results["problem_b"]
 
-    print("\n═══ PROBLEM A — Missing Affiliate Click ═══\n")
+    print("\n=== PROBLEM A — Missing Affiliate Click ===\n")
 
     elig_g = a.get("global", {})
     elig_c = a.get("cis", {})
     gap = a.get("gap", {})
 
     causes_a = [
-        # rank, cause, region/obs, affected, impact, confidence, fix
-        (1, "Ineligible traffic in denominator",
-         "ALL", f"{a['n_total']-a['n_eligible']:,} users ({pct(a['n_total']-a['n_eligible'], a['n_total'])})",
-         "Reduces apparent gap (denominator correction)", "HIGH",
-         "GLOBAL_DIRECT / CIS_PROXY",
+        (1, "Ineligible traffic in denominator", "ALL",
+         f"{a['n_total']-a['n_eligible']:,} users ({pct(a['n_total']-a['n_eligible'], a['n_total'])})",
+         "Reduces apparent gap (denominator correction)", "HIGH", "GLOBAL_DIRECT / CIS_PROXY",
          "Use only product+homepage pages in denominator"),
-        (2, "Users with usable config but never reach hub",
-         "ALL", f"{gap.get('n_good_no_hub',0):,} users ({pct(gap.get('n_good_no_hub',0), gap.get('n_gap_total',1))} of gap)",
-         "Direct miss — user had working config but DOGI/auto-redirect didn't fire",
-         "HIGH", "GLOBAL_DIRECT / CIS_PROXY",
+        (2, "Users with usable config but never reach hub", "ALL",
+         f"{gap.get('n_good_no_hub',0):,} users ({pct(gap.get('n_good_no_hub',0), gap.get('n_gap_total',1))} of gap)",
+         "Direct miss — DOGI/auto-redirect didn't fire", "HIGH", "GLOBAL_DIRECT / CIS_PROXY",
          "Improve DOGI coin visibility; review 30-min cooldown logic"),
-        (3, "Config not found or value=False",
-         "ALL", f"{gap.get('n_no_cfg',0)+gap.get('n_bad_cfg',0):,} users ({pct(gap.get('n_no_cfg',0)+gap.get('n_bad_cfg',0), gap.get('n_gap_total',1))} of gap)",
+        (3, "Config not found or value=False", "ALL",
+         f"{gap.get('n_no_cfg',0)+gap.get('n_bad_cfg',0):,} users",
          "User received unusable/no hub config", "HIGH", "GLOBAL_DIRECT / CIS_PROXY",
          "Investigate why value=False; check config delivery reliability"),
-        (4, "CIS: hub reached, no proxy return to aliexpress.ru",
-         "CIS", f"{elig_c.get('n_a6_no_proxy',0):,} users [CIS_PROXY]",
-         "Return to site not observed after hub — EPN param preservation unknown",
-         "MEDIUM", "CIS_PROXY",
-         "Add Affiliate Return Detected event; log EPN utm params to backend"),
-        (5, "Global: hub reached, no our sk return",
-         "Global", f"{elig_g.get('n_a6',0):,} users [GLOBAL_DIRECT]",
-         "User reached hub but no AliHelper-owned sk in subsequent events",
-         "MEDIUM", "GLOBAL_DIRECT",
-         "Check hub redirect logic; verify sk injection in return URL"),
-        (6, "A5: Silent redirect (sk in events, no Affiliate Click)",
-         "Global", f"{elig_g.get('n_a5',0):,} users [GLOBAL_DIRECT]",
-         "Mixpanel click event missing for successful redirects",
-         "MEDIUM", "GLOBAL_DIRECT",
+        (4, "CIS: hub reached, no proxy return", "CIS",
+         f"{elig_c.get('n_a6_no_proxy',0):,} users [CIS_PROXY]",
+         "Return to site not observed after hub", "MEDIUM", "CIS_PROXY",
+         "Add Affiliate Return Detected event; log EPN utm params"),
+        (5, "Global: hub reached, no our sk return", "Global",
+         f"{elig_g.get('n_a6',0):,} users [GLOBAL_DIRECT]",
+         "User reached hub but no owned sk in subsequent events", "MEDIUM", "GLOBAL_DIRECT",
+         "Check hub redirect logic; verify sk injection"),
+        (6, "A5: Silent redirect (sk in events, no Affiliate Click)", "Global",
+         f"{elig_g.get('n_a5',0):,} users [GLOBAL_DIRECT]",
+         "Mixpanel click event missing for successful redirects", "MEDIUM", "GLOBAL_DIRECT",
          "Fix Mixpanel event firing in hub redirect flow"),
     ]
 
@@ -1294,61 +1032,51 @@ def print_ranked_causes(df_a: pd.DataFrame, pc_b: pd.DataFrame, results: dict):
         print(f"  #{r[0]} {r[1]}")
         print(f"     Region: {r[2]}  |  Observability: {r[6]}")
         print(f"     Affected: {r[3]}")
-        print(f"     Impact: {r[4]}")
-        print(f"     Confidence: {r[5]}")
-        print(f"     Fix: {r[7]}")
-        print()
+        print(f"     Impact: {r[4]}  |  Confidence: {r[5]}")
+        print(f"     Fix: {r[7]}\n")
 
-    print("\n═══ PROBLEM B — Purchase Completed without Purchase ═══\n")
+    print("\n=== PROBLEM B — Purchase Completed without Purchase ===\n")
 
     n_gap = b.get("n_raw_gap", 0)
     n_pc  = b.get("n_pc", 1)
     ga    = b.get("global_attr", {})
 
     causes_b = [
-        (1, "Delayed postback (primary cause)",
-         "ALL", f"~{b.get('n_unmatched',0):,} unmatched ≈ raw gap {n_gap:,} ({pct(n_gap, n_pc)})",
-         "Net raw gap ≈ unmatched bucket — confirmed delayed postbacks dominate",
-         "HIGH", "GLOBAL_DIRECT (net gap)",
-         "Use mature cohort (28d excluding last 7d); monitor postback SLA"),
-        (2, "Global: NO_OUR_SK_IN_72H — no AliHelper attribution before purchase",
-         "Global", f"{next((r['n'] for r in b.get('global_reason_codes',[]) if r['code']=='NO_OUR_SK_IN_72H'), 0):,} events [GLOBAL_DIRECT]",
-         "User purchased without AliHelper-owned sk in prior 72h",
-         "HIGH", "GLOBAL_DIRECT",
-         "Improve activation rate (Problem A fixes); check 72h window edge cases"),
-        (3, "Global: FOREIGN_SK overwrite",
-         "Global", f"{next((r['n'] for r in b.get('global_reason_codes',[]) if r['code']=='FOREIGN_SK_AFTER_OUR_SK'), 0):,} events [GLOBAL_DIRECT]",
-         "Third-party sk overwrote AliHelper-owned sk before purchase",
-         "HIGH", "GLOBAL_DIRECT",
-         "Partner discussion on last-click rules; monitor overwrite rate"),
-        (4, "CIS: EPN attribution not observable",
-         "CIS", f"{b.get('cis_pc',0):,} CIS PC events — attribution state: NOT_OBSERVABLE_WITH_CURRENT_DATA",
-         "Cannot determine EPN param preservation from historical events",
-         "N/A", "NOT_OBSERVABLE_WITH_CURRENT_DATA",
-         "Instrument: store utm_source/utm_medium/utm_campaign in MongoDB events; add Affiliate Return Detected event"),
-        (5, "Cashback interference",
-         "Global", f"{ga.get('has_cashback',0):,} events with cashback trace [GLOBAL_DIRECT]",
-         "Partial evidence — actual rate likely higher (local storage only)",
-         "LOW", "GLOBAL_DIRECT (partial)",
-         "Improve cashback interference detection; add server-side cashback logging"),
+        (1, "Delayed postback (primary cause)", "ALL",
+         f"raw gap {n_gap:,} ({pct(n_gap, n_pc)})",
+         "Net raw gap confirmed — delayed postbacks dominate", "HIGH", "GLOBAL_DIRECT (net gap)",
+         "Use mature cohort; monitor postback SLA"),
+        (2, "Global: NO_OUR_SK_IN_72H", "Global",
+         f"{next((r['n'] for r in b.get('global_reason_codes',[]) if r['code']=='NO_OUR_SK_IN_72H'), 0):,} events",
+         "User purchased without AliHelper-owned sk in prior 72h", "HIGH", "GLOBAL_DIRECT",
+         "Improve activation rate (Problem A fixes)"),
+        (3, "Global: FOREIGN_SK overwrite", "Global",
+         f"{next((r['n'] for r in b.get('global_reason_codes',[]) if r['code']=='FOREIGN_SK_AFTER_OUR_SK'), 0):,} events",
+         "Third-party sk overwrote AliHelper-owned sk", "HIGH", "GLOBAL_DIRECT",
+         "Partner discussion on last-click rules"),
+        (4, "CIS: EPN attribution not observable", "CIS",
+         f"{b.get('cis_pc',0):,} CIS PC events — NOT_OBSERVABLE_WITH_CURRENT_DATA",
+         "Cannot determine EPN param preservation", "N/A", "NOT_OBSERVABLE_WITH_CURRENT_DATA",
+         "Instrument: store utm_* in MongoDB events"),
+        (5, "Cashback interference", "Global",
+         f"{ga.get('has_cashback',0):,} events with cashback trace",
+         "Partial evidence — actual rate likely higher", "LOW", "GLOBAL_DIRECT (partial)",
+         "Add server-side cashback logging"),
     ]
 
     for r in causes_b:
         print(f"  #{r[0]} {r[1]}")
         print(f"     Region: {r[2]}  |  Observability: {r[6]}")
         print(f"     Affected: {r[3]}")
-        print(f"     Impact: {r[4]}")
-        print(f"     Confidence: {r[5]}")
-        print(f"     Fix: {r[7]}")
-        print()
+        print(f"     Impact: {r[4]}  |  Confidence: {r[5]}")
+        print(f"     Fix: {r[7]}\n")
 
-    print("\n═══ UNEXPLAINED REMAINDER ═══")
-    print(f"  Problem A — users with usable config, reached hub, but no return signal:")
-    print(f"    Global A6 (hub, no sk): {elig_g.get('n_a6',0):,} [GLOBAL_DIRECT — unknown cause]")
-    print(f"    CIS A6 (hub, no proxy): {elig_c.get('n_a6_no_proxy',0):,} [CIS_PROXY — EPN state unknown]")
-    print(f"  Problem B — CIS unmatched PC: {b.get('cis_unmatched',0):,} [NOT_OBSERVABLE_WITH_CURRENT_DATA]")
+    print("\n=== UNEXPLAINED REMAINDER ===")
+    print(f"  Problem A — Global A6 (hub, no sk): {elig_g.get('n_a6',0):,}")
+    print(f"  Problem A — CIS A6 (hub, no proxy): {elig_c.get('n_a6_no_proxy',0):,}")
+    print(f"  Problem B — CIS unmatched: {b.get('cis_unmatched',0):,}")
     print(f"  Problem B — Global UNKNOWN: "
-          f"{next((r['n'] for r in b.get('global_reason_codes',[]) if r['code']=='UNKNOWN'), 0):,} [GLOBAL_DIRECT — likely delayed postbacks]")
+          f"{next((r['n'] for r in b.get('global_reason_codes',[]) if r['code']=='UNKNOWN'), 0):,}")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1363,60 +1091,29 @@ def main():
 
     print_caveats()
 
-    # ── Step 1: Mixpanel data (all reused from cache) ──────────────────
     aff_click_raw, purchase_raw, pc_raw = download_mixpanel_data()
-    aff_click_df = to_df(aff_click_raw)
 
-    # ── Step 2: MongoDB (Problem A aggregations + NEW CIS proxy return) ─
     print_section("Connecting to MongoDB via SSH tunnel")
-    with sshtunnel.SSHTunnelForwarder(
-        SSH_HOST, ssh_username=SSH_USER,
-        remote_bind_address=(DB_HOST, DB_PORT),
-        local_bind_address=("127.0.0.1", LOCAL_PORT),
-    ) as tunnel:
-        mongo_client = pymongo.MongoClient(
-            f"mongodb://{MONGO_USER}:{MONGO_PASS}@127.0.0.1:{LOCAL_PORT}/{AUTH_DB}",
-            serverSelectionTimeoutMS=15000, directConnection=True,
-        )
-        db = mongo_client[DB_NAME]
+    with mongo_tunnel() as db:
         print("  Connected.")
-
-        # Problem A MongoDB agg (reuse cache)
         print_section("MongoDB Problem A aggregations (reusing cache)")
         mongo_data = run_mongo_problem_a(db)
-
-        # NEW: CIS proxy return (new query — will be cached after first run)
-        print_section("CIS proxy return query (NEW)")
+        print_section("CIS proxy return query")
         cis_proxy_return = run_cis_proxy_return(db, aff_click_raw)
 
-        mongo_client.close()
-
-    # ── Step 3: Problem A ───────────────────────────────────────────────
     df_a = build_problem_a_df(mongo_data, aff_click_raw, cis_proxy_return)
     results_a = analyze_problem_a(df_a)
 
-    # ── Step 4: Problem B ───────────────────────────────────────────────
     pur_b, pc_b = build_problem_b_df(purchase_raw, pc_raw)
     pc_b = match_purchases(pc_b, pur_b, window_minutes=10)
     pc_b = assign_reason_codes(pc_b, aff_click_raw)
     results_b = analyze_problem_b(pc_b, pur_b)
 
-    # ── Step 5: Ranked causes ───────────────────────────────────────────
     all_results = {"problem_a": results_a, "problem_b": results_b}
     print_ranked_causes(df_a, pc_b, all_results)
-
-    # ── Step 6: Save structured results ────────────────────────────────
     save_results(results_a, results_b, df_a, pc_b)
 
     print_section("Analysis v2 complete")
-    print("  Cached artifacts:")
-    print("    cache/aff_click_a.json       — REUSED")
-    print("    cache/purchase_b.json        — REUSED")
-    print("    cache/pc_b.json              — REUSED")
-    print("    cache/mongo_problem_a.pkl    — REUSED")
-    print("    cache/cis_proxy_return_a.pkl — NEW (first run)")
-    print("    cache/results_v2.json        — NEW (structured output)")
-    print("\n  Next: run build_report_v2.py to regenerate HTML report.")
 
 
 if __name__ == "__main__":

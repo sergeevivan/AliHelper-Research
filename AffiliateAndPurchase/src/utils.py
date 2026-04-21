@@ -1,15 +1,15 @@
 """
-Shared utility functions: formatting, browser classification, URL normalization.
+Shared utility functions: formatting, browser classification, URL/UTM parsing, eligibility.
 """
 
 import re
 from datetime import datetime
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 import pandas as pd
 from bson import ObjectId
 
-from src.config import AUTO_REDIRECT_BROWSERS, CIS_COUNTRIES
+from src.config import AUTO_REDIRECT_BROWSERS, CIS_COUNTRIES, OUR_SKS
 
 
 # ── ObjectId helpers ─────────────────────────────────────────────────────────
@@ -34,6 +34,11 @@ def pct_f(num, denom):
     if denom == 0:
         return 0.0
     return 100 * num / denom
+
+
+def fmt(n):
+    """Format number with thousands separator."""
+    return f"{n:,}"
 
 
 def print_section(title):
@@ -84,130 +89,144 @@ def is_cis(country: str) -> bool:
     return str(country).upper() in CIS_COUNTRIES
 
 
+def region_label(country: str) -> str:
+    """Return 'CIS' or 'Global' based on affiliate routing."""
+    return "CIS" if is_cis(country) else "Global"
+
+
+# ── UTM parsing (CIS affiliate attribution) ─────────────────────────────────
+
+def parse_utm(url: str) -> dict:
+    """
+    Parse UTM params from a URL query string.
+    Returns dict with keys: utm_source, utm_medium, utm_campaign (or None).
+    """
+    if not url:
+        return {"utm_source": None, "utm_medium": None, "utm_campaign": None}
+    try:
+        qs = parse_qs(urlparse(url).query)
+        return {
+            "utm_source": qs.get("utm_source", [None])[0],
+            "utm_medium": qs.get("utm_medium", [None])[0],
+            "utm_campaign": qs.get("utm_campaign", [None])[0],
+        }
+    except Exception:
+        return {"utm_source": None, "utm_medium": None, "utm_campaign": None}
+
+
+def is_alihelper_utm(url: str) -> bool:
+    """
+    Check if URL contains AliHelper-owned EPN UTM markers.
+    All three must match: utm_source=aerkol, utm_medium=cpa, utm_campaign=*_7685
+    """
+    utm = parse_utm(url)
+    return (
+        utm["utm_source"] == "aerkol"
+        and utm["utm_medium"] == "cpa"
+        and utm["utm_campaign"] is not None
+        and utm["utm_campaign"].endswith("_7685")
+    )
+
+
+def is_foreign_utm(url: str) -> bool:
+    """
+    Check if URL contains UTM params that indicate a foreign (non-AliHelper) affiliate.
+    Returns True if there are UTM affiliate markers that don't match AliHelper pattern.
+    """
+    utm = parse_utm(url)
+    has_any = utm["utm_source"] or utm["utm_medium"] or utm["utm_campaign"]
+    if not has_any:
+        return False
+    return not is_alihelper_utm(url)
+
+
+# ── Global sk parsing ────────────────────────────────────────────────────────
+
+def parse_sk(query_sk: str) -> str | None:
+    """Extract sk value from querySk field (stores the raw sk value directly)."""
+    if not query_sk:
+        return None
+    val = str(query_sk).strip()
+    return val if val else None
+
+
+def is_our_sk(query_sk: str) -> bool:
+    """Check if querySk is an AliHelper-owned sk."""
+    sk = parse_sk(query_sk)
+    return sk in OUR_SKS if sk else False
+
+
+def has_foreign_sk(query_sk: str) -> bool:
+    """Check if querySk is a non-AliHelper sk."""
+    sk = parse_sk(query_sk)
+    if not sk:
+        return False
+    return sk not in OUR_SKS
+
+
+def has_af(query_sk: str) -> bool:
+    """Check if querySk looks like an af parameter (not sk).
+    Note: querySk stores raw sk values; af is not detectable from this field alone."""
+    # querySk contains raw sk values, never af — af detection requires URL parsing
+    return False
+
+
+# ── Eligible page detection ──────────────────────────────────────────────────
+
+# Auto-redirect eligible URL patterns (from extension checkListUrls)
+CHECK_LIST_URLS = [
+    re.compile(r'^https?://([\w\.]+)?aliexpress\.(com|ru|us)/item/(\d+)\.html', re.I | re.M),
+    re.compile(r'^https?://([\w\.]+)?(aliexpress|tmall)\.(com|ru|us)/item/.*?/(\d+)\.html', re.I | re.M),
+    re.compile(r'^https?://([\w\.]+)?aliexpress\.(com|ru|us)/i/(\d+)\.html', re.I | re.M),
+    re.compile(r'^https?://([\w\.]+)?(aliexpress|tmall)\.(com|ru|us)/item/(\d+)\.html', re.I),
+    re.compile(r'^https?://([\w\.]+)?aliexpress\.(com|ru|us)/store/product/.*?/(\d+)_(\d+)\.html', re.I | re.M),
+    re.compile(r'^https?://group\.aliexpress\.(com|ru|us)/(\d+)-(\d+)-detail\.html', re.I | re.M),
+    re.compile(r'^https?://sale\.aliexpress\.(com|ru|us)/[\S]+/affi\-item\.htm', re.I | re.M),
+    re.compile(r'^https?://play\.aliexpress\.(com|ru|us)/[\S]+/productDetail\.htm', re.I | re.M),
+    re.compile(r'^https?://([\w\.]+)?aliexpress\.(com|ru|us)/ssr/(\d+)/([\w\-]+)', re.I | re.M),
+]
+
+
+def matches_check_list_urls(url: str) -> bool:
+    """Check if URL matches any auto-redirect eligible pattern."""
+    if not url:
+        return False
+    return any(pat.search(url) for pat in CHECK_LIST_URLS)
+
+
+def is_eligible_product_page(product_id) -> bool:
+    """Check if event represents an eligible product page (DOGI flow)."""
+    return product_id is not None and product_id != ""
+
+
+def is_eligible(url: str, product_id, lineage_str: str) -> bool:
+    """
+    Check if a page visit is eligible for affiliate activation.
+    - DOGI: product pages only (productId present)
+    - Auto-redirect: URLs matching checkListUrls patterns
+    """
+    if lineage_str == "auto-redirect":
+        return matches_check_list_urls(url)
+    else:
+        return is_eligible_product_page(product_id)
+
+
 # ── Mixpanel DataFrame helpers ───────────────────────────────────────────────
 
-def to_df(records: list[dict]) -> pd.DataFrame:
+def mp_to_df(records: list[dict]) -> pd.DataFrame:
     """Flatten Mixpanel NDJSON records to DataFrame."""
     rows = [r.get("properties", {}) for r in records]
     return pd.DataFrame(rows)
 
 
-# ── URL normalization & classification ───────────────────────────────────────
+# ── AliExpress host detection ───────────────────────────────────────────────
 
-HOMEPAGE_RE = re.compile(r'^https?://[^/]*aliexpress\.[^/]*(/(#.*)?)?$', re.I)
-
-
-def is_homepage(url: str) -> bool:
-    """Check if URL is an AliExpress homepage."""
+def is_aliexpress_ru(url: str) -> bool:
+    """Check if URL is on aliexpress.ru domain."""
     if not url:
         return False
-    return bool(HOMEPAGE_RE.match(url))
-
-
-def is_product_page(product_id) -> bool:
-    """Check if event represents a product page visit."""
-    return product_id is not None and product_id != ""
-
-
-def normalize_url(url: str) -> tuple[str, str]:
-    """
-    Classify an AliExpress URL into a page category.
-
-    Returns:
-        (category, normalized_path) where category is one of:
-        search_results, category_listing, cart, order_checkout,
-        seller_store, promo_landing, feed_recommendations,
-        account_profile, help_service, brand_collection,
-        review_rating, homepage_variant, other, unknown
-    """
-    if not url:
-        return ("unknown", "")
     try:
-        p = urlparse(url)
-        host = (p.hostname or "").lower()
-        path = p.path or "/"
-        qs = p.query or ""
+        host = urlparse(url).hostname or ""
+        return "aliexpress.ru" in host.lower()
     except Exception:
-        return ("unknown", url[:80])
-
-    def clean_path(path_str):
-        s = re.sub(r'/\d{6,}', '/{id}', path_str)
-        s = re.sub(r'/(item|product|store|category)/\d+', r'/\1/{id}', s, flags=re.I)
-        s = re.sub(r'\.htm(l)?$', '', s, flags=re.I)
-        s = s.rstrip('/')
-        return s or '/'
-
-    path_norm = clean_path(path)
-    path_lower = path.lower()
-    qs_lower = qs.lower()
-
-    if any(['/search' in path_lower, 'searchtext=' in qs_lower,
-            's.aliexpress.' in host, path_lower.startswith('/wholesale'),
-            '/search/' in path_lower]):
-        return ("search_results", clean_path(
-            re.sub(r'[^/]+', lambda m: '{q}' if len(m.group()) > 6 else m.group(), path_norm)))
-
-    if any(['/category/' in path_lower,
-            re.match(r'^/[a-z0-9-]+-cat-\d', path_lower),
-            '/all-wholesale-' in path_lower, path_lower.startswith('/categories'),
-            '/browse/' in path_lower, '/tag/' in path_lower]):
-        return ("category_listing", path_norm[:80])
-
-    if any(['shoppingcart' in path_lower, '/cart' in path_lower, '/basket' in path_lower]):
-        return ("cart", path_norm[:80])
-
-    if any(['/orderlist' in path_lower, '/order/' in path_lower, '/orders/' in path_lower,
-            '/trade/' in path_lower, '/pay/' in path_lower, '/checkout' in path_lower,
-            '/confirm_order' in path_lower, '/payment' in path_lower,
-            'order_confirm' in path_lower,
-            '/purchase' in path_lower.replace('?', '').replace('#', '')]):
-        return ("order_checkout", path_norm[:80])
-
-    if any(['/store/' in path_lower, path_lower.startswith('/store'),
-            '/seller/' in path_lower, '/shop/' in path_lower,
-            re.search(r'/[a-z0-9-]+-store-\d', path_lower)]):
-        return ("seller_store", clean_path(re.sub(r'/store/\d+', '/store/{id}', path)))
-
-    if any(['/gcp/' in path_lower, '/promotion/' in path_lower, '/deals/' in path_lower,
-            '/promo/' in path_lower, '/sale/' in path_lower, '/event/' in path_lower,
-            '/campaign/' in path_lower, '/hotproducts' in path_lower,
-            '/hot-products' in path_lower, '/flash_deals' in path_lower,
-            '/flashdeals' in path_lower, '/coupon' in path_lower,
-            '/top-picks' in path_lower, '/landing' in path_lower]):
-        return ("promo_landing", path_norm[:80])
-
-    if any([path_lower in ('/', ''), '/home' in path_lower, '/feed' in path_lower,
-            '/recommend' in path_lower, '/discovery' in path_lower,
-            '/newuser' in path_lower, '/new-user' in path_lower,
-            '/just4u' in path_lower, 'just-for-you' in path_lower,
-            '/stream' in path_lower,
-            '/video' in path_lower and '/product' not in path_lower]):
-        return ("feed_recommendations", path_norm[:80])
-
-    if any(['/account' in path_lower, '/myprofile' in path_lower,
-            '/mypurse' in path_lower, '/myfollowing' in path_lower,
-            '/myfavorites' in path_lower, '/mywishlist' in path_lower,
-            '/personal-info' in path_lower, '/member/overview' in path_lower,
-            path_lower.startswith('/usercenter')]):
-        return ("account_profile", path_norm[:80])
-
-    if any(['/help' in path_lower, '/service' in path_lower,
-            '/dispute' in path_lower, '/refund' in path_lower,
-            '/after-sale' in path_lower, '/complaint' in path_lower,
-            '/contact' in path_lower, '/feedback' in path_lower,
-            '/buynow' in path_lower]):
-        return ("help_service", path_norm[:80])
-
-    if any(['/brand/' in path_lower, '/collection/' in path_lower,
-            '/handpick' in path_lower, '/topic/' in path_lower,
-            '/list/' in path_lower]):
-        return ("brand_collection", path_norm[:80])
-
-    if any(['/review' in path_lower, '/rating' in path_lower,
-            '/feedback' in path_lower]):
-        return ("review_rating", path_norm[:80])
-
-    if path in ('/', ''):
-        return ("homepage_variant", path_norm[:80])
-
-    return ("other", path_norm[:80])
+        return False

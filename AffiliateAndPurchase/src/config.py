@@ -36,13 +36,16 @@ MP_BASE    = os.getenv("MIXPANEL_BASE_URL")
 
 # ── Analysis windows (UTC) ──────────────────────────────────────────────────
 
-# Problem A — Missing Affiliate Click (28 complete days)
-A_START = datetime(2026, 3,  6,  0,  0,  0, tzinfo=timezone.utc)
-A_END   = datetime(2026, 4,  2, 23, 59, 59, tzinfo=timezone.utc)
+# Problem A — Missing Affiliate Click (full March 2026)
+A_START = datetime(2026, 3,  1,  0,  0,  0, tzinfo=timezone.utc)
+A_END   = datetime(2026, 3, 31, 23, 59, 59, tzinfo=timezone.utc)
 
-# Problem B — Purchase Completed without Purchase (mature cohort, excludes last 7 days)
-B_START = datetime(2026, 2, 27,  0,  0,  0, tzinfo=timezone.utc)
-B_END   = datetime(2026, 3, 26, 23, 59, 59, tzinfo=timezone.utc)
+# Problem B — Purchase Completed without Purchase (March minus last 7 days for mature cohort)
+B_START = datetime(2026, 3,  1,  0,  0,  0, tzinfo=timezone.utc)
+B_END   = datetime(2026, 3, 24, 23, 59, 59, tzinfo=timezone.utc)
+
+# Problem B — 72h lookback requires events starting 3 days before B_START
+B_LOOKBACK_START = datetime(2026, 2, 26,  0,  0,  0, tzinfo=timezone.utc)
 
 # ── AliHelper-owned Global sk whitelist ──────────────────────────────────────
 
@@ -64,4 +67,4 @@ MATCH_WINDOW_S        = 10 * 60   # Purchase matching: 10 minutes
 MP_TZ_OFFSET_H        = 3         # Mixpanel project timezone offset (Europe/Moscow = UTC+3)
 
 # Affiliate Click data coverage start
-AC_COVERAGE_START_UTC = datetime(2026, 3, 6, 0, 0, 0, tzinfo=timezone.utc)
+AC_COVERAGE_START_UTC = datetime(2026, 3, 1, 0, 0, 0, tzinfo=timezone.utc)

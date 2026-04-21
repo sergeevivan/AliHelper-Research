@@ -31,10 +31,13 @@ def mongo_tunnel():
         ssh_username=SSH_USER,
         remote_bind_address=(DB_HOST, DB_PORT),
         local_bind_address=("127.0.0.1", LOCAL_PORT),
+        set_keepalive=30,
     ) as tunnel:
         client = pymongo.MongoClient(
             f"mongodb://{MONGO_USER}:{MONGO_PASS}@127.0.0.1:{LOCAL_PORT}/{AUTH_DB}",
             serverSelectionTimeoutMS=15000,
+            socketTimeoutMS=0,
+            connectTimeoutMS=20000,
             directConnection=True,
         )
         try:

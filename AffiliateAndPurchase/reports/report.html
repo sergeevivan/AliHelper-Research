@@ -1,1150 +1,779 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AliHelper — Root-Cause Investigation Report</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AliHelper Research Report — 2026-04-09 10:15 UTC</title>
 <style>
-  :root {
-    --bg: #0f1117;
-    --surface: #1a1d27;
-    --surface2: #222638;
-    --border: #2e3347;
-    --text: #e2e4ed;
-    --text-muted: #8b8fa8;
-    --accent: #6c8bef;
-    --accent2: #a78bfa;
-    --green: #34d399;
-    --red: #f87171;
-    --orange: #fb923c;
-    --yellow: #fbbf24;
-    --teal: #22d3ee;
-    --radius: 10px;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    font-size: 14px;
-    line-height: 1.6;
-  }
-  a { color: var(--accent); text-decoration: none; }
+/* ── Reset & base ─────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 15px; line-height: 1.65; color: #374151;
+  margin: 0; background: #fff;
+}
+a { color: #2563eb; text-decoration: none; }
+a:hover { text-decoration: underline; }
+code {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 12.5px; background: #f3f4f6; padding: 1px 5px;
+  border-radius: 3px; color: #1e40af;
+}
+em { color: #6b7280; font-style: normal; }
+ol, ul { margin: 8px 0 8px 0; padding-left: 22px; }
+li { margin: 5px 0; }
+hr { border: none; border-top: 1px solid #e5e7eb; margin: 32px 0; }
 
-  /* Layout */
-  .sidebar {
-    position: fixed; top: 0; left: 0; bottom: 0; width: 240px;
-    background: var(--surface); border-right: 1px solid var(--border);
-    overflow-y: auto; padding: 24px 0; z-index: 100;
-  }
-  .sidebar-logo {
-    padding: 0 20px 20px;
-    font-size: 13px; font-weight: 700; letter-spacing: .05em;
-    text-transform: uppercase; color: var(--accent);
-    border-bottom: 1px solid var(--border); margin-bottom: 12px;
-  }
-  .sidebar-logo span { color: var(--text-muted); font-weight: 400; font-size: 11px; display: block; margin-top: 2px; }
-  .nav-section { padding: 8px 20px 4px; font-size: 11px; font-weight: 600;
-    text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); }
-  .nav-item { display: block; padding: 6px 20px; color: var(--text-muted); font-size: 13px;
-    border-left: 2px solid transparent; transition: all .15s; }
-  .nav-item:hover { color: var(--text); border-left-color: var(--accent); background: rgba(108,139,239,.07); }
-  .nav-item.active { color: var(--accent); border-left-color: var(--accent); background: rgba(108,139,239,.1); }
+/* ── Layout ────────────────────────────────────────────────── */
+.layout { display: flex; min-height: 100vh; }
 
-  .main { margin-left: 240px; max-width: 1100px; padding: 40px 48px; }
+/* Sidebar */
+.sidebar {
+  width: 240px; flex-shrink: 0;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  background: #f9fafb; border-right: 1px solid #e5e7eb;
+  padding: 24px 0;
+}
+.sidebar-logo {
+  padding: 0 18px 16px; font-weight: 700; font-size: 14px;
+  color: #1e40af; border-bottom: 1px solid #e5e7eb; margin-bottom: 12px;
+}
+.sidebar nav a {
+  display: block; padding: 5px 18px; font-size: 13px;
+  color: #6b7280; border-left: 3px solid transparent;
+  transition: all .15s;
+}
+.sidebar nav a:hover, .sidebar nav a.active {
+  color: #2563eb; background: #eff6ff;
+  border-left-color: #2563eb; text-decoration: none;
+}
+.sidebar nav .nav-sub { padding-left: 30px; font-size: 12px; }
 
-  /* Header */
-  .page-header { margin-bottom: 40px; padding-bottom: 28px; border-bottom: 1px solid var(--border); }
-  .page-header h1 { font-size: 28px; font-weight: 700; letter-spacing: -.5px; margin-bottom: 8px; }
-  .page-header h1 span { color: var(--accent); }
-  .meta { display: flex; gap: 24px; flex-wrap: wrap; margin-top: 14px; }
-  .meta-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); }
-  .meta-item .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+/* Main content */
+.main {
+  flex: 1; max-width: 1160px; padding: 32px 48px;
+  overflow-x: hidden;
+}
 
-  /* Sections */
-  .section { margin-bottom: 56px; scroll-margin-top: 24px; }
-  .section-title {
-    font-size: 20px; font-weight: 700; margin-bottom: 20px;
-    padding-bottom: 12px; border-bottom: 1px solid var(--border);
-    display: flex; align-items: center; gap: 10px;
-  }
-  .section-title .icon { font-size: 18px; }
-  .subsection { margin-bottom: 32px; }
-  .subsection-title { font-size: 15px; font-weight: 600; color: var(--accent2); margin-bottom: 14px; }
+/* ── Typography ────────────────────────────────────────────── */
+h1 {
+  font-size: 26px; font-weight: 700; color: #111827;
+  border-bottom: 3px solid #2563eb; padding-bottom: 10px; margin-top: 0;
+}
+h2 {
+  font-size: 20px; font-weight: 700; color: #1e40af;
+  margin-top: 48px; border-bottom: 2px solid #e5e7eb;
+  padding-bottom: 6px;
+}
+h3 { font-size: 16px; font-weight: 600; color: #374151; margin-top: 28px; }
+h4, .tbl-caption {
+  font-size: 13px; font-weight: 600; color: #6b7280;
+  margin: 20px 0 6px; text-transform: uppercase; letter-spacing: .4px;
+}
+.meta { color: #9ca3af; font-size: 13px; margin-top: -8px; }
 
-  /* Cards */
-  .card-grid { display: grid; gap: 16px; }
-  .card-grid.cols-2 { grid-template-columns: 1fr 1fr; }
-  .card-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
-  .card-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
-  .card {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 20px;
-  }
-  .card.highlight { border-color: var(--accent); background: rgba(108,139,239,.06); }
-  .card.danger { border-color: var(--red); background: rgba(248,113,113,.06); }
-  .card.success { border-color: var(--green); background: rgba(52,211,153,.06); }
-  .card.warning { border-color: var(--orange); background: rgba(251,146,60,.06); }
-  .card-label { font-size: 11px; font-weight: 600; text-transform: uppercase;
-    letter-spacing: .07em; color: var(--text-muted); margin-bottom: 6px; }
-  .card-value { font-size: 28px; font-weight: 700; line-height: 1.1; }
-  .card-sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
-  .card-value.green { color: var(--green); }
-  .card-value.red { color: var(--red); }
-  .card-value.orange { color: var(--orange); }
-  .card-value.yellow { color: var(--yellow); }
-  .card-value.blue { color: var(--accent); }
+/* ── KPI cards ─────────────────────────────────────────────── */
+.kpi-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(160px,1fr));
+  gap: 14px; margin: 20px 0 28px;
+}
+.kpi-card {
+  background: #f9fafb; border: 1px solid #e5e7eb;
+  border-radius: 10px; padding: 16px 18px; text-align: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06);
+}
+.kpi-value { font-size: 30px; font-weight: 800; line-height: 1.1; }
+.kpi-label { font-size: 12px; color: #6b7280; margin-top: 4px; }
+.kpi-good  { color: #059669; }
+.kpi-warn  { color: #d97706; }
+.kpi-bad   { color: #dc2626; }
+.kpi-neutral { color: #2563eb; }
 
-  /* Tables */
-  .table-wrap { overflow-x: auto; border-radius: var(--radius); border: 1px solid var(--border); }
-  table { width: 100%; border-collapse: collapse; }
-  thead { background: var(--surface2); }
-  th { padding: 10px 14px; text-align: left; font-size: 11px; font-weight: 600;
-    text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted);
-    border-bottom: 1px solid var(--border); white-space: nowrap; }
-  td { padding: 9px 14px; border-bottom: 1px solid var(--border); font-size: 13px; }
-  tr:last-child td { border-bottom: none; }
-  tr:hover td { background: rgba(255,255,255,.02); }
-  td.num { text-align: right; font-variant-numeric: tabular-nums; }
-  td.good { color: var(--green); font-weight: 600; }
-  td.bad { color: var(--red); font-weight: 600; }
-  td.warn { color: var(--orange); font-weight: 600; }
-  td.neutral { color: var(--text-muted); }
-  .badge {
-    display: inline-block; padding: 2px 8px; border-radius: 999px;
-    font-size: 11px; font-weight: 600; white-space: nowrap;
-  }
-  .badge-red { background: rgba(248,113,113,.15); color: var(--red); }
-  .badge-green { background: rgba(52,211,153,.15); color: var(--green); }
-  .badge-orange { background: rgba(251,146,60,.15); color: var(--orange); }
-  .badge-blue { background: rgba(108,139,239,.15); color: var(--accent); }
-  .badge-purple { background: rgba(167,139,250,.15); color: var(--accent2); }
-  .badge-gray { background: rgba(139,143,168,.15); color: var(--text-muted); }
+/* ── Callout boxes ─────────────────────────────────────────── */
+.callout {
+  display: flex; gap: 12px; align-items: flex-start;
+  padding: 13px 16px; margin: 14px 0;
+  border-radius: 6px; border-left: 4px solid;
+  font-size: 14px;
+}
+.callout-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+.callout-critical { background:#fef2f2; border-color:#f87171; color:#7f1d1d; }
+.callout-warning  { background:#fffbeb; border-color:#fbbf24; color:#78350f; }
+.callout-info     { background:#eff6ff; border-color:#60a5fa; color:#1e3a8a; }
+.callout-finding  { background:#f0fdf4; border-color:#34d399; color:#14532d; }
 
-  /* Funnel */
-  .funnel { display: flex; flex-direction: column; gap: 4px; }
-  .funnel-step {
-    display: flex; align-items: center; gap: 12px;
-    padding: 12px 16px; background: var(--surface); border: 1px solid var(--border);
-    border-radius: 8px; position: relative;
-  }
-  .funnel-step.gap-step { border-color: var(--red); background: rgba(248,113,113,.05); }
-  .funnel-step.good-step { border-color: var(--green); background: rgba(52,211,153,.05); }
-  .funnel-bar {
-    position: absolute; left: 0; top: 0; bottom: 0; border-radius: 8px 0 0 8px;
-    opacity: .12;
-  }
-  .funnel-num { font-size: 18px; font-weight: 700; min-width: 90px; z-index: 1; }
-  .funnel-label { flex: 1; z-index: 1; font-size: 13px; }
-  .funnel-pct { font-size: 13px; font-weight: 600; min-width: 60px; text-align: right; z-index: 1; }
-  .funnel-arrow { text-align: center; color: var(--text-muted); font-size: 16px; padding: 2px 0; }
+/* ── Attribution label badges ──────────────────────────────── */
+.lbl {
+  display: inline-block; padding: 2px 8px; border-radius: 99px;
+  font-size: 11.5px; font-weight: 700; font-family: monospace;
+  margin-right: 4px; letter-spacing: .2px;
+}
+.lbl-global     { background: #dbeafe; color: #1d4ed8; }
+.lbl-cis-direct { background: #fef3c7; color: #92400e; }
+.lbl-cis-proxy  { background: #e5e7eb; color: #374151; }
 
-  /* Alert */
-  .alert {
-    padding: 14px 18px; border-radius: var(--radius);
-    border-left: 3px solid; margin-bottom: 20px; font-size: 13px;
-  }
-  .alert-red { border-color: var(--red); background: rgba(248,113,113,.08); }
-  .alert-orange { border-color: var(--orange); background: rgba(251,146,60,.08); }
-  .alert-green { border-color: var(--green); background: rgba(52,211,153,.08); }
-  .alert-blue { border-color: var(--accent); background: rgba(108,139,239,.08); }
-  .alert strong { display: block; margin-bottom: 4px; font-size: 13px; }
+/* ── Tables ────────────────────────────────────────────────── */
+.tbl-wrap { overflow-x: auto; margin: 0 0 28px; border-radius: 8px;
+            border: 1px solid #e5e7eb; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+thead tr { background: #f3f4f6; }
+th {
+  text-align: left; padding: 9px 13px;
+  border-bottom: 2px solid #d1d5db;
+  font-weight: 600; font-size: 12.5px;
+  color: #374151; white-space: nowrap;
+  position: sticky; top: 0; background: #f3f4f6;
+}
+td { padding: 7px 13px; border-bottom: 1px solid #f3f4f6; vertical-align: top; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover td { background: #eff6ff; }
+tbody tr:nth-child(even) td { background: #fafafa; }
+tbody tr:nth-child(even):hover td { background: #eff6ff; }
 
-  /* Progress bar */
-  .bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-  .bar-label { min-width: 160px; font-size: 12px; color: var(--text-muted); }
-  .bar-track { flex: 1; height: 8px; background: var(--surface2); border-radius: 4px; overflow: hidden; }
-  .bar-fill { height: 100%; border-radius: 4px; transition: width .3s; }
-  .bar-val { min-width: 48px; text-align: right; font-size: 12px; font-weight: 600; }
+/* Rate cell coloring */
+.rate-good { background: #d1fae5 !important; color: #065f46; font-weight: 600; }
+.rate-mid  { background: #fef3c7 !important; color: #78350f; font-weight: 600; }
+.rate-bad  { background: #fee2e2 !important; color: #7f1d1d; font-weight: 600; }
 
-  /* Cause cards */
-  .cause-card {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 18px 20px; margin-bottom: 12px;
-    display: flex; gap: 16px;
-  }
-  .cause-num {
-    min-width: 32px; height: 32px; border-radius: 50%;
-    background: var(--surface2); display: flex; align-items: center;
-    justify-content: center; font-weight: 700; font-size: 13px;
-    flex-shrink: 0; margin-top: 2px;
-  }
-  .cause-body { flex: 1; }
-  .cause-title { font-weight: 600; font-size: 14px; margin-bottom: 6px; }
-  .cause-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-  .cause-detail { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+/* ── Funnel bars ───────────────────────────────────────────── */
+.funnel-section { margin: 20px 0 28px; }
+.funnel-region-title {
+  font-size: 13px; font-weight: 700; color: #374151;
+  margin: 16px 0 8px; text-transform: uppercase; letter-spacing: .4px;
+}
+.funnel-bars { display: flex; flex-direction: column; gap: 7px; }
+.funnel-row { display: flex; align-items: center; gap: 10px; }
+.funnel-label { width: 220px; flex-shrink: 0; font-size: 13px; color: #4b5563; }
+.funnel-bar-wrap {
+  flex: 1; background: #f3f4f6; border-radius: 4px; height: 22px; overflow: hidden;
+}
+.funnel-bar { height: 100%; border-radius: 4px; transition: width .3s; min-width: 2px; }
+.bar-good    { background: #34d399; }
+.bar-mid     { background: #fbbf24; }
+.bar-bad     { background: #f87171; }
+.bar-neutral { background: #93c5fd; }
+.funnel-count { width: 80px; text-align: right; font-size: 13px;
+                font-weight: 600; color: #374151; }
 
-  /* Rec */
-  .rec-group { margin-bottom: 28px; }
-  .rec-group-title { font-size: 13px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: .06em; color: var(--text-muted); margin-bottom: 12px; }
-  .rec-item {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 8px; padding: 14px 16px; margin-bottom: 8px;
-    display: flex; gap: 12px; align-items: flex-start;
-  }
-  .rec-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
-  .rec-text { font-size: 13px; }
-  .rec-text strong { display: block; margin-bottom: 2px; }
+/* ── Reason-code inline bar ────────────────────────────────── */
+.rc-bar-wrap { width: 120px; background: #f3f4f6; border-radius: 3px; height: 10px; overflow: hidden; }
+.rc-bar { height: 100%; background: #6366f1; border-radius: 3px; }
 
-  /* Caveat */
-  .caveat-list { list-style: none; }
-  .caveat-list li {
-    padding: 9px 12px; border-left: 2px solid var(--border); margin-bottom: 6px;
-    font-size: 12px; color: var(--text-muted); background: var(--surface);
-    border-radius: 0 6px 6px 0;
-  }
-  .caveat-list li strong { color: var(--text); }
+/* ── Exec summary box ──────────────────────────────────────── */
+.exec-box {
+  background: #eff6ff; border: 2px solid #93c5fd;
+  border-radius: 10px; padding: 22px 28px; margin: 20px 0;
+}
+.exec-box h3 { margin-top: 0; color: #1e40af; font-size: 17px; }
 
-  /* Separator */
-  .sep { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
-
-  /* Tag */
-  .tag { font-size: 11px; background: var(--surface2); border: 1px solid var(--border);
-    padding: 2px 7px; border-radius: 4px; color: var(--text-muted); white-space: nowrap; }
-
-  @media (max-width: 900px) {
-    .sidebar { display: none; }
-    .main { margin-left: 0; padding: 24px 20px; }
-    .card-grid.cols-4 { grid-template-columns: 1fr 1fr; }
-    .card-grid.cols-3 { grid-template-columns: 1fr 1fr; }
-    .card-grid.cols-2 { grid-template-columns: 1fr; }
-  }
+/* ── TOC (sidebar duplicate for mobile) ────────────────────── */
+@media (max-width: 860px) {
+  .sidebar { display: none; }
+  .main { padding: 20px; }
+}
 </style>
 </head>
 <body>
+<div class="layout">
 
-<!-- SIDEBAR -->
-<nav class="sidebar">
-  <div class="sidebar-logo">
-    AliHelper
-    <span>Root-Cause Report · 2026-04-03</span>
-  </div>
-  <div class="nav-section">Overview</div>
-  <a class="nav-item" href="#overview">Summary</a>
-  <a class="nav-item" href="#definitions">Definitions</a>
-  <a class="nav-item" href="#caveats">Data Caveats</a>
-  <div class="nav-section">Problem A</div>
-  <a class="nav-item" href="#a-funnel">Funnel</a>
-  <a class="nav-item" href="#a-lineage">Lineage</a>
-  <a class="nav-item" href="#a-browser">Browser</a>
-  <a class="nav-item" href="#a-hub">Hubs</a>
-  <a class="nav-item" href="#a-geo">Geography</a>
-  <a class="nav-item" href="#a-version">Versions</a>
-  <a class="nav-item" href="#a-pagetype">Page Types</a>
-  <a class="nav-item" href="#a-causes">Root Causes</a>
-  <div class="nav-section">Problem B</div>
-  <a class="nav-item" href="#b-gap">Gap Analysis</a>
-  <a class="nav-item" href="#b-matching">Matching</a>
-  <a class="nav-item" href="#b-reasons">Reason Codes</a>
-  <a class="nav-item" href="#b-attribution">Attribution State</a>
-  <a class="nav-item" href="#b-geo">Geography</a>
-  <a class="nav-item" href="#b-causes">Root Causes</a>
-  <div class="nav-section">Actions</div>
-  <a class="nav-item" href="#recommendations">Recommendations</a>
-  <a class="nav-item" href="#remainder">Unexplained Remainder</a>
-</nav>
+<!-- ── Sidebar ────────────────────────────────────────── -->
+<aside class="sidebar">
+  <div class="sidebar-logo">📊 AliHelper Research</div>
+  <nav>
+    <a href="#exec">1. Executive Summary</a>
+    <a href="#defs">2. Definitions</a>
+    <a href="#caveats">3. Data Quality</a>
+    <a href="#pa-data">4. Problem A — Data</a>
+    <a href="#pa-rca" class="nav-sub">↳ Root-Cause Analysis</a>
+    <a href="#pb-data">5. Problem B — Data</a>
+    <a href="#pb-rca" class="nav-sub">↳ Root-Cause Analysis</a>
+    <a href="#ranked">6. Ranked Root Causes</a>
+    <a href="#unexplained">7. Unexplained Remainder</a>
+    <a href="#recs">8. Recommended Fixes</a>
+  </nav>
+</aside>
 
-<!-- MAIN -->
-<div class="main">
+<!-- ── Main content ───────────────────────────────────── -->
+<main class="main">
+<h1>AliHelper — Root-Cause Research Report</h1>
+<p class="meta">Generated: 2026-04-09 10:15 UTC &nbsp;·&nbsp;
+   Problem A: 2026-03-01 — 2026-03-31 &nbsp;·&nbsp;
+   Problem B: 2026-03-01 — 2026-03-24</p>
 
-<!-- PAGE HEADER -->
-<div class="page-header">
-  <h1>AliHelper — <span>Affiliate Investigation</span></h1>
-  <p style="color:var(--text-muted);margin-top:6px;font-size:13px;">
-    Root-cause analysis of missing affiliate activation and commission attribution loss
-  </p>
-  <div class="meta">
-    <div class="meta-item"><div class="dot"></div>Analysis date: 2026-04-03</div>
-    <div class="meta-item"><div class="dot" style="background:var(--accent)"></div>Problem A window: 2026-03-06 – 2026-04-02 UTC</div>
-    <div class="meta-item"><div class="dot" style="background:var(--accent2)"></div>Problem B window: 2026-02-27 – 2026-03-26 UTC</div>
-  </div>
+<h2 id="exec">1. Executive Summary</h2>
+
+<div class="exec-box">
+<h3>Executive Summary</h3>
+
+<p><strong>Shared root cause:</strong> The dominant cause of purchase commission loss is
+<strong>foreign affiliate overwrite</strong> &mdash; third-party affiliates (cashback services,
+coupon extensions, price comparison tools) replace AliHelper's <code>sk</code> before
+the user completes their purchase.</p>
+
+<ul>
+<li><strong>Problem A</strong> &mdash; The Global affiliate flow works: 93.7% of users who reach
+the hub return with our <code>sk</code>. CIS return rate is 95.6%+ (100% including proxy).
+The main funnel gap is <strong>hub reach</strong>: 31.1% of eligible users never generate
+<code>Affiliate Click</code>, driven by DOGI activation UX (64% vs auto-redirect 87%) and
+older extension versions.</li>
+<li><strong>Problem B</strong> &mdash; Of 240,100 unmatched Purchase Completed events (49.6% gap),
+<strong>65.2% (156,550)</strong> are Global users whose AliHelper <code>sk</code> was overwritten
+by a foreign <code>sk</code> within the 72h attribution window. An additional 24.6% (59,140)
+had no AliHelper <code>sk</code> at all in 72h. CIS losses are smaller: 3.4% unknown,
+2.2% no UTM, 1.9% foreign UTM overwrite.</li>
+</ul>
+
+<p><strong>Key numbers:</strong> 85.3% of Global Purchase Completed events had our <code>sk</code>
+in the 72h window, but 94.1% of those were subsequently overwritten by a foreign <code>sk</code>.
+For CIS, 83.7% had our UTM markers, with 18.8% overwritten.</p>
+
+<p><strong>Estimated revenue impact:</strong> Addressing affiliate overwrite for the 156,550 monthly
+Global purchases lost to foreign <code>sk</code> overwrite represents the dominant recovery
+opportunity. Reducing overwrite by even 30% would recover ~47,000 attributed purchases per month.</p>
 </div>
 
-<!-- OVERVIEW -->
-<div class="section" id="overview">
-  <div class="section-title"><span class="icon">📊</span> Executive Summary</div>
 
-  <div class="alert alert-blue">
-    <strong>Два отдельных исследования — одна общая причина</strong>
-    Problem A (missing Affiliate Click) и Problem B (PC без Purchase) имеют общий корень:
-    российские/CIS-пользователи достигают хаба, но не получают наш sk обратно — ни в URL, ни в атрибуции.
-  </div>
+<h2 id="defs">2. Definitions</h2>
+<ul>
+<li><strong>User identity:</strong> <code>guests._id</code> = Mixpanel <code>$user_id</code></li>
+<li><strong>Global attribution:</strong> <code>events.payload.querySk</code> (raw sk value);
+    whitelist: <code>_c36PoUEj</code>, <code>_d6jWDbY</code>, <code>_AnTGXs</code>,
+    <code>_olPBn9X</code>, <code>_dVh6yw5</code></li>
+<li><strong>CIS attribution:</strong> UTM params in <code>events.payload.url</code>
+    — <code>utm_source=aerkol</code>, <code>utm_medium=cpa</code>,
+    <code>utm_campaign=*_7685</code></li>
+<li><strong>Eligible pages:</strong> product pages only — DOGI: <code>productId</code> present;
+    auto-redirect: URL matches <code>checkListUrls</code> patterns</li>
+<li><strong>Attribution window:</strong> 72 h before Purchase Completed</li>
+<li><strong>Purchase matching:</strong> same user, ±10 min (no <code>order_id</code>)</li>
+<li><strong>Regional routing:</strong> by actual affiliate system — UA = Global, not CIS</li>
+<li><strong>CIS countries:</strong> RU, BY, KZ, UZ, AZ, AM, GE, KG, MD, TJ, TM</li>
+<li><strong>Browser lineage:</strong> Firefox + Edge = auto-redirect; all others = DOGI</li>
+</ul>
 
-  <div class="card-grid cols-4" style="margin-bottom:20px">
-    <div class="card danger">
-      <div class="card-label">A: Eligible gap</div>
-      <div class="card-value red">25.5%</div>
-      <div class="card-sub">14 215 из 55 762 eligible не дошли до хаба</div>
-    </div>
-    <div class="card danger">
-      <div class="card-label">A: Hub-to-sk gap (A6)</div>
-      <div class="card-value red">20.1%</div>
-      <div class="card-sub">11 207 дошли до хаба, но без нашего sk</div>
-    </div>
-    <div class="card warning">
-      <div class="card-label">B: Net raw gap</div>
-      <div class="card-value orange">6.3%</div>
-      <div class="card-sub">33 035 PC без Purchase (28 дней)</div>
-    </div>
-    <div class="card success">
-      <div class="card-label">Config coverage</div>
-      <div class="card-value green">99.8%</div>
-      <div class="card-sub">Конфиг не является причиной gap</div>
-    </div>
-  </div>
+<h2 id="caveats">3. Data Quality Caveats</h2>
 
-  <div class="card-grid cols-2">
-    <div class="card highlight">
-      <div class="card-label">🔴 Критический сигнал — Problem A</div>
-      <div style="margin-top:8px;font-size:13px;">
-        Россия: <strong style="color:var(--red)">7 919 пользователей</strong> достигли хаба,
-        только <strong style="color:var(--red)">142 (1.8%)</strong> вернулись с нашим sk.<br>
-        Беларусь: <strong>11%</strong>. Глобал: <strong style="color:var(--green)">94.9%</strong>.<br>
-        <span style="color:var(--text-muted);font-size:12px;">tools-tops.com / market-tops.com: 55–57% vs discount/stock: 91–92%</span>
-      </div>
-    </div>
-    <div class="card highlight">
-      <div class="card-label">🟡 Критический сигнал — Problem B</div>
-      <div style="margin-top:8px;font-size:13px;">
-        Истинный gap ~33K ≈ UNKNOWN-бакет (32 656) — delayed postback, не потеря атрибуции.<br>
-        64.3% «несовпавших» — NO_OUR_SK: покупки, где наша активация вообще не срабатывала.<br>
-        <span style="color:var(--text-muted);font-size:12px;">CIS: 85% NO_OUR_SK vs Global 62% — прямое следствие Problem A</span>
-      </div>
-    </div>
-  </div>
+<ul>
+<li><strong>Cashback observability:</strong> Cashback-site visits are tracked only in client
+    local storage, NOT logged to backend. Cashback-related explanations carry inherent uncertainty.
+    The CIS_UNKNOWN residual (8,145 events) likely contains hidden cashback interference.</li>
+<li><strong>Auto-redirect attempts:</strong> No direct backend log of client-side redirect
+    attempts. Hub reach rates are lower bounds &mdash; some attempted redirects may fail silently
+    without generating an <code>Affiliate Click</code>.</li>
+<li><strong>URL parsing:</strong> <code>events.payload.url</code> may contain malformed,
+    encoded, or truncated URLs. UTM extraction handles errors gracefully but may produce false
+    negatives.</li>
+<li><strong>Purchase matching:</strong> Time-based matching (10-min window) introduces possible
+    false positives (coincidental temporal proximity) and false negatives (legitimate matches outside
+    the window). Sensitivity check shows match rate ranges from 40.2% (5min) to 54.9% (20min).</li>
+<li><strong>guestStateHistory:</strong> Represents config delivery, not proof of redirect
+    execution. A user having a config with a hub assigned does not mean they used that hub.</li>
+<li><strong>Mixpanel timezone:</strong> Project timezone is Europe/Moscow (UTC+3). All
+    MongoDB-Mixpanel joins use explicit UTC conversion.</li>
+<li><strong>Global return evidence:</strong> The 93.7% Global return rate confirms the sk mechanism
+    works. The <code>events.payload.querySk</code> field stores the raw sk value directly (not a
+    query string). The 94.1% foreign overwrite rate among Global users with our marker is the
+    dominant cause of purchase attribution loss.</li>
+<li><strong>CIS proxy return:</strong> The 120-second time-based proxy return is a heuristic.
+    Some proxy returns may be coincidental page loads, not true affiliate returns. Label:
+    <code>CIS_PROXY</code>.</li>
+<li><strong>noLogUrls exclusions:</strong> Some paths may be excluded from logging by config-level
+    URL exclusions. Absence of <code>events</code> near checkout/order flow is not always evidence
+    of no user activity.</li>
+</ul>
+
+<h2 id="pa-data">4. Problem A — Missing Affiliate Click</h2>
+<div class="kpi-grid"><div class="kpi-card"><div class="kpi-value kpi-neutral">66,593</div><div class="kpi-label">Total Users</div></div><div class="kpi-card"><div class="kpi-value kpi-good">65,046</div><div class="kpi-label">Eligible</div></div><div class="kpi-card"><div class="kpi-value kpi-warn">44,760 (67%)</div><div class="kpi-label">Reached Hub</div></div><div class="kpi-card"><div class="kpi-value kpi-good">42,559 (95%)</div><div class="kpi-label">Any Return</div></div></div>
+<div class="funnel-section"><h4 class="funnel-region-title">Global (50,591 users)</h4><div class="funnel-bars"><div class="funnel-row"><div class="funnel-label">Total users</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-neutral" style="width:100.0%"></div></div><div class="funnel-count">50,591</div></div><div class="funnel-row"><div class="funnel-label">Eligible (product pages)</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-good" style="width:97.8%"></div></div><div class="funnel-count">49,483</div></div><div class="funnel-row"><div class="funnel-label">+ usable config</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-good" style="width:97.8%"></div></div><div class="funnel-count">49,458</div></div><div class="funnel-row"><div class="funnel-label">Reached hub (AC)</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-mid" style="width:68.6%"></div></div><div class="funnel-count">34,729</div></div><div class="funnel-row"><div class="funnel-label">Direct return signal</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-good" style="width:64.3%"></div></div><div class="funnel-count">32,531</div></div><div class="funnel-row"><div class="funnel-label">Any return (direct+proxy)</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-good" style="width:64.3%"></div></div><div class="funnel-count">32,531</div></div></div><h4 class="funnel-region-title">CIS (16,002 users)</h4><div class="funnel-bars"><div class="funnel-row"><div class="funnel-label">Total users</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-neutral" style="width:100.0%"></div></div><div class="funnel-count">16,002</div></div><div class="funnel-row"><div class="funnel-label">Eligible (product pages)</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-good" style="width:97.3%"></div></div><div class="funnel-count">15,563</div></div><div class="funnel-row"><div class="funnel-label">+ usable config</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-good" style="width:97.1%"></div></div><div class="funnel-count">15,543</div></div><div class="funnel-row"><div class="funnel-label">Reached hub (AC)</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-mid" style="width:62.7%"></div></div><div class="funnel-count">10,031</div></div><div class="funnel-row"><div class="funnel-label">Direct return signal</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-good" style="width:59.9%"></div></div><div class="funnel-count">9,590</div></div><div class="funnel-row"><div class="funnel-label">Any return (direct+proxy)</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-good" style="width:62.7%"></div></div><div class="funnel-count">10,028</div></div></div><h4 class="funnel-region-title">All (66,593 users)</h4><div class="funnel-bars"><div class="funnel-row"><div class="funnel-label">Total users</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-neutral" style="width:100.0%"></div></div><div class="funnel-count">66,593</div></div><div class="funnel-row"><div class="funnel-label">Eligible (product pages)</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-good" style="width:97.7%"></div></div><div class="funnel-count">65,046</div></div><div class="funnel-row"><div class="funnel-label">+ usable config</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-good" style="width:97.6%"></div></div><div class="funnel-count">65,001</div></div><div class="funnel-row"><div class="funnel-label">Reached hub (AC)</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-mid" style="width:67.2%"></div></div><div class="funnel-count">44,760</div></div><div class="funnel-row"><div class="funnel-label">Direct return signal</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-good" style="width:63.3%"></div></div><div class="funnel-count">42,121</div></div><div class="funnel-row"><div class="funnel-label">Any return (direct+proxy)</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-good" style="width:63.9%"></div></div><div class="funnel-count">42,559</div></div></div></div>
+<h4 class='tbl-caption'>Funnel — numeric detail</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>Step</th><th>Global</th><th>CIS</th><th>All</th></tr></thead>
+<tbody>
+<tr><td>1. Total users</td><td>50,591</td><td>16,002</td><td>66,593</td></tr>
+<tr><td>2. Eligible (product pages)</td><td>49,483</td><td>15,563</td><td>65,046</td></tr>
+<tr><td>3. + usable config</td><td>49,458</td><td>15,543</td><td>65,001</td></tr>
+<tr><td>4. Reached hub (Affiliate Click)</td><td>34,729</td><td>10,031</td><td>44,760</td></tr>
+<tr><td>5. Direct return signal</td><td>32,531</td><td>9,590</td><td>42,121</td></tr>
+<tr><td>6. Any return (direct+proxy)</td><td>32,531</td><td>10,028</td><td>42,559</td></tr>
+<tr><td><em>Eligible rate</em></td><td class="rate-good">97.8%</td><td class="rate-good">97.3%</td><td class="rate-good">97.7%</td></tr>
+<tr><td><em>Hub reach rate (of eligible)</em></td><td class="rate-mid">70.2%</td><td class="rate-mid">64.5%</td><td class="rate-mid">68.8%</td></tr>
+<tr><td><em>Return rate (of hub)</em></td><td class="rate-good">93.7%</td><td class="rate-good">100.0%</td><td class="rate-good">95.1%</td></tr>
+</tbody></table></div>
+<h3>A5 — Missing Mixpanel click tracking</h3>
+<p><span class="lbl lbl-global">GLOBAL_DIRECT</span> Global: 404 users with our sk but no Affiliate Click<br><span class="lbl lbl-cis-direct">CIS_DIRECT</span> CIS: 210 users with our UTM but no Affiliate Click</p>
+<h3>A6 — Hub reached, no return</h3>
+<p><span class="lbl lbl-global">GLOBAL_DIRECT</span> Global: 2,602 users reached hub but no sk return<br><span class="lbl lbl-cis-direct">CIS_DIRECT</span> CIS: 213 users reached hub but no UTM/proxy return</p>
+<h4 class='tbl-caption'>Problem A — by region</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>region</th><th>users</th><th>eligible</th><th>has_config</th><th>reached_hub</th><th>has_return</th><th>elig_rate</th><th>hub_rate</th><th>return_rate</th></tr></thead>
+<tbody>
+<tr><td>Global</td><td>50,591</td><td>49,483</td><td>50,553</td><td>34,729</td><td>32,531</td><td class="rate-good">97.8</td><td class="rate-mid">70.2</td><td class="rate-good">93.7</td></tr>
+<tr><td>CIS</td><td>16,002</td><td>15,563</td><td>15,956</td><td>10,031</td><td>10,028</td><td class="rate-good">97.3</td><td class="rate-mid">64.5</td><td class="rate-good">100.0</td></tr>
+</tbody></table></div>
+<h4 class='tbl-caption'>Problem A — by browser</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>browser_fam</th><th>users</th><th>eligible</th><th>has_config</th><th>reached_hub</th><th>has_return</th><th>elig_rate</th><th>hub_rate</th><th>return_rate</th></tr></thead>
+<tbody>
+<tr><td>chrome</td><td>39,280</td><td>39,280</td><td>39,262</td><td>26,538</td><td>25,626</td><td class="rate-good">100.0</td><td class="rate-mid">67.6</td><td class="rate-good">96.6</td></tr>
+<tr><td>firefox</td><td>9,613</td><td>8,651</td><td>9,567</td><td>8,055</td><td>7,319</td><td class="rate-good">90.0</td><td class="rate-good">93.1</td><td class="rate-good">90.9</td></tr>
+<tr><td>yandex</td><td>5,830</td><td>5,830</td><td>5,823</td><td>3,586</td><td>3,422</td><td class="rate-good">100.0</td><td class="rate-mid">61.5</td><td class="rate-good">95.4</td></tr>
+<tr><td>edge</td><td>5,559</td><td>4,974</td><td>5,550</td><td>3,811</td><td>3,775</td><td class="rate-good">89.5</td><td class="rate-mid">76.6</td><td class="rate-good">99.1</td></tr>
+<tr><td>other</td><td>3,964</td><td>3,964</td><td>3,961</td><td>1,238</td><td class="rate-good">938</td><td class="rate-good">100.0</td><td class="rate-bad">31.2</td><td class="rate-mid">75.8</td></tr>
+<tr><td>opera</td><td>2,343</td><td>2,343</td><td>2,342</td><td>1,529</td><td>1,477</td><td class="rate-good">100.0</td><td class="rate-mid">65.3</td><td class="rate-good">96.6</td></tr>
+<tr><td>safari</td><td>4</td><td class="rate-bad">4</td><td>4</td><td class="rate-bad">3</td><td class="rate-bad">2</td><td class="rate-good">100.0</td><td class="rate-mid">75.0</td><td class="rate-mid">66.7</td></tr>
+</tbody></table></div>
+<h4 class='tbl-caption'>Problem A — by lineage</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>lineage</th><th>users</th><th>eligible</th><th>has_config</th><th>reached_hub</th><th>has_return</th><th>elig_rate</th><th>hub_rate</th><th>return_rate</th></tr></thead>
+<tbody>
+<tr><td>dogi</td><td>51,421</td><td>51,421</td><td>51,392</td><td>32,894</td><td>31,465</td><td class="rate-good">100.0</td><td class="rate-mid">64.0</td><td class="rate-good">95.7</td></tr>
+<tr><td>auto-redirect</td><td>15,172</td><td>13,625</td><td>15,117</td><td>11,866</td><td>11,094</td><td class="rate-good">89.8</td><td class="rate-good">87.1</td><td class="rate-good">93.5</td></tr>
+</tbody></table></div>
+<h4 class='tbl-caption'>Problem A — by country</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>country</th><th>users</th><th>eligible</th><th>has_config</th><th>reached_hub</th><th>has_return</th><th>elig_rate</th><th>hub_rate</th><th>return_rate</th></tr></thead>
+<tbody>
+<tr><td>RU</td><td>13,224</td><td>12,864</td><td>13,180</td><td>8,385</td><td>8,421</td><td class="rate-good">97.3</td><td class="rate-mid">65.2</td><td class="rate-good">100.4</td></tr>
+<tr><td>UA</td><td>3,505</td><td>3,443</td><td>3,502</td><td>2,436</td><td>2,330</td><td class="rate-good">98.2</td><td class="rate-mid">70.8</td><td class="rate-good">95.6</td></tr>
+<tr><td>ES</td><td>3,493</td><td>3,416</td><td>3,492</td><td>2,585</td><td>2,482</td><td class="rate-good">97.8</td><td class="rate-mid">75.7</td><td class="rate-good">96.0</td></tr>
+<tr><td>BR</td><td>2,915</td><td>2,845</td><td>2,915</td><td>1,947</td><td>1,903</td><td class="rate-good">97.6</td><td class="rate-mid">68.4</td><td class="rate-good">97.7</td></tr>
+<tr><td>CL</td><td>2,615</td><td>2,557</td><td>2,613</td><td>1,880</td><td>1,819</td><td class="rate-good">97.8</td><td class="rate-mid">73.5</td><td class="rate-good">96.8</td></tr>
+<tr><td>MX</td><td>2,470</td><td>2,406</td><td>2,470</td><td>1,731</td><td>1,708</td><td class="rate-good">97.4</td><td class="rate-mid">71.9</td><td class="rate-good">98.7</td></tr>
+<tr><td>PL</td><td>2,106</td><td>2,058</td><td>2,104</td><td>1,603</td><td>1,512</td><td class="rate-good">97.7</td><td class="rate-mid">77.9</td><td class="rate-good">94.3</td></tr>
+<tr><td>FR</td><td>1,978</td><td>1,926</td><td>1,976</td><td>1,483</td><td>1,412</td><td class="rate-good">97.4</td><td class="rate-mid">77.0</td><td class="rate-good">95.2</td></tr>
+<tr><td>IT</td><td>1,674</td><td>1,622</td><td>1,674</td><td>1,308</td><td>1,256</td><td class="rate-good">96.9</td><td class="rate-good">80.6</td><td class="rate-good">96.0</td></tr>
+<tr><td>PE</td><td>1,654</td><td>1,619</td><td>1,654</td><td>1,181</td><td>1,178</td><td class="rate-good">97.9</td><td class="rate-mid">72.9</td><td class="rate-good">99.7</td></tr>
+<tr><td>IL</td><td>1,544</td><td>1,512</td><td>1,543</td><td>1,079</td><td>1,046</td><td class="rate-good">97.9</td><td class="rate-mid">71.4</td><td class="rate-good">96.9</td></tr>
+<tr><td>PK</td><td>1,519</td><td>1,514</td><td>1,519</td><td>1,118</td><td>1,129</td><td class="rate-good">99.7</td><td class="rate-mid">73.8</td><td class="rate-good">101.0</td></tr>
+<tr><td>DE</td><td>1,486</td><td>1,437</td><td>1,482</td><td>1,146</td><td class="rate-good">958</td><td class="rate-good">96.7</td><td class="rate-mid">79.7</td><td class="rate-good">83.6</td></tr>
+<tr><td>BY</td><td>1,305</td><td>1,259</td><td>1,304</td><td class="rate-good">722</td><td class="rate-good">712</td><td class="rate-good">96.5</td><td class="rate-mid">57.3</td><td class="rate-good">98.6</td></tr>
+<tr><td>PT</td><td>1,163</td><td>1,136</td><td>1,163</td><td class="rate-good">860</td><td class="rate-good">829</td><td class="rate-good">97.7</td><td class="rate-mid">75.7</td><td class="rate-good">96.4</td></tr>
+<tr><td>US</td><td>1,028</td><td class="rate-good">993</td><td>1,026</td><td class="rate-good">705</td><td class="rate-good">617</td><td class="rate-good">96.6</td><td class="rate-mid">71.0</td><td class="rate-good">87.5</td></tr>
+<tr><td>CO</td><td>972</td><td class="rate-good">946</td><td>972</td><td class="rate-good">678</td><td class="rate-good">666</td><td class="rate-good">97.3</td><td class="rate-mid">71.7</td><td class="rate-good">98.2</td></tr>
+<tr><td>GB</td><td>868</td><td class="rate-good">853</td><td>868</td><td class="rate-good">653</td><td class="rate-good">600</td><td class="rate-good">98.3</td><td class="rate-mid">76.6</td><td class="rate-good">91.9</td></tr>
+<tr><td>NL</td><td>834</td><td class="rate-good">817</td><td>832</td><td class="rate-good">615</td><td class="rate-good">371</td><td class="rate-good">98.0</td><td class="rate-mid">75.3</td><td class="rate-mid">60.3</td></tr>
+<tr><td>AR</td><td>812</td><td class="rate-good">799</td><td>812</td><td class="rate-good">584</td><td class="rate-good">566</td><td class="rate-good">98.4</td><td class="rate-mid">73.1</td><td class="rate-good">96.9</td></tr>
+</tbody></table></div>
+<h4 class='tbl-caption'>Problem A — by hub</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>cfg_domain</th><th>users</th><th>eligible</th><th>has_config</th><th>reached_hub</th><th>has_return</th><th>elig_rate</th><th>hub_rate</th><th>return_rate</th></tr></thead>
+<tbody>
+<tr><td>stock-tops.com</td><td>16,724</td><td>16,342</td><td>16,724</td><td>11,439</td><td>10,886</td><td class="rate-good">97.7</td><td class="rate-mid">70.0</td><td class="rate-good">95.2</td></tr>
+<tr><td>tools-tops.com</td><td>16,686</td><td>16,295</td><td>16,686</td><td>11,036</td><td>10,497</td><td class="rate-good">97.7</td><td class="rate-mid">67.7</td><td class="rate-good">95.1</td></tr>
+<tr><td>market-tops.com</td><td>16,601</td><td>16,224</td><td>16,601</td><td>11,024</td><td>10,471</td><td class="rate-good">97.7</td><td class="rate-mid">67.9</td><td class="rate-good">95.0</td></tr>
+<tr><td>discount-tops.net</td><td>16,498</td><td>16,140</td><td>16,498</td><td>11,257</td><td>10,701</td><td class="rate-good">97.8</td><td class="rate-mid">69.7</td><td class="rate-good">95.1</td></tr>
+<tr><td></td><td>84</td><td class="rate-bad">45</td><td>0</td><td class="rate-bad">4</td><td class="rate-bad">4</td><td class="rate-mid">53.6</td><td class="rate-bad">8.9</td><td class="rate-good">100.0</td></tr>
+</tbody></table></div>
+<h4 class='tbl-caption'>Problem A — by version</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>client_version</th><th>users</th><th>eligible</th><th>has_config</th><th>reached_hub</th><th>has_return</th><th>elig_rate</th><th>hub_rate</th><th>return_rate</th></tr></thead>
+<tbody>
+<tr><td>3.1.0</td><td>24,890</td><td>24,300</td><td>24,885</td><td>15,091</td><td>14,519</td><td class="rate-good">97.6</td><td class="rate-mid">62.1</td><td class="rate-good">96.2</td></tr>
+<tr><td>3.1.2</td><td>16,793</td><td>16,571</td><td>16,784</td><td>14,877</td><td>14,185</td><td class="rate-good">98.7</td><td class="rate-good">89.8</td><td class="rate-good">95.3</td></tr>
+<tr><td>3.1.1</td><td>16,046</td><td>15,973</td><td>16,041</td><td>12,912</td><td>12,267</td><td class="rate-good">99.5</td><td class="rate-good">80.8</td><td class="rate-good">95.0</td></tr>
+<tr><td>3.0.8</td><td>1,170</td><td>1,013</td><td>1,167</td><td class="rate-good">191</td><td class="rate-good">193</td><td class="rate-good">86.6</td><td class="rate-bad">18.9</td><td class="rate-good">101.0</td></tr>
+<tr><td>3.0.10</td><td>960</td><td class="rate-good">843</td><td>959</td><td class="rate-good">146</td><td class="rate-good">158</td><td class="rate-good">87.8</td><td class="rate-bad">17.3</td><td class="rate-good">108.2</td></tr>
+<tr><td>3.0.5</td><td>460</td><td class="rate-good">447</td><td>460</td><td class="rate-bad">30</td><td class="rate-bad">33</td><td class="rate-good">97.2</td><td class="rate-bad">6.7</td><td class="rate-good">110.0</td></tr>
+<tr><td>3.0.7</td><td>303</td><td class="rate-good">263</td><td>303</td><td class="rate-bad">42</td><td class="rate-bad">42</td><td class="rate-good">86.8</td><td class="rate-bad">16.0</td><td class="rate-good">100.0</td></tr>
+<tr><td>2.30.8</td><td>254</td><td class="rate-good">223</td><td>254</td><td class="rate-bad">32</td><td class="rate-bad">31</td><td class="rate-good">87.8</td><td class="rate-bad">14.3</td><td class="rate-good">96.9</td></tr>
+<tr><td>3.0.3</td><td>229</td><td class="rate-good">219</td><td>229</td><td class="rate-bad">7</td><td class="rate-bad">10</td><td class="rate-good">95.6</td><td class="rate-bad">3.2</td><td class="rate-good">142.9</td></tr>
+<tr><td>2.30.7</td><td>160</td><td class="rate-good">141</td><td>160</td><td class="rate-bad">15</td><td class="rate-bad">16</td><td class="rate-good">88.1</td><td class="rate-bad">10.6</td><td class="rate-good">106.7</td></tr>
+<tr><td>3.0.9</td><td>156</td><td class="rate-good">131</td><td>156</td><td class="rate-bad">30</td><td class="rate-bad">28</td><td class="rate-good">84.0</td><td class="rate-bad">22.9</td><td class="rate-good">93.3</td></tr>
+<tr><td>3.0.4</td><td>149</td><td class="rate-good">124</td><td>149</td><td class="rate-bad">25</td><td class="rate-bad">23</td><td class="rate-good">83.2</td><td class="rate-bad">20.2</td><td class="rate-good">92.0</td></tr>
+<tr><td>3.0.2</td><td>122</td><td class="rate-good">88</td><td>122</td><td class="rate-bad">42</td><td class="rate-bad">39</td><td class="rate-mid">72.1</td><td class="rate-bad">47.7</td><td class="rate-good">92.9</td></tr>
+<tr><td>3.0.6</td><td>95</td><td class="rate-bad">34</td><td>94</td><td class="rate-bad">26</td><td class="rate-bad">23</td><td class="rate-bad">35.8</td><td class="rate-mid">76.5</td><td class="rate-good">88.5</td></tr>
+<tr><td>2.28.5</td><td>85</td><td class="rate-mid">74</td><td>79</td><td class="rate-bad">2</td><td class="rate-bad">2</td><td class="rate-good">87.1</td><td class="rate-bad">2.7</td><td class="rate-good">100.0</td></tr>
+<tr><td>2.30.5</td><td>76</td><td class="rate-mid">66</td><td>76</td><td class="rate-bad">9</td><td class="rate-bad">11</td><td class="rate-good">86.8</td><td class="rate-bad">13.6</td><td class="rate-good">122.2</td></tr>
+<tr><td>3.0.1</td><td>53</td><td class="rate-mid">53</td><td>53</td><td class="rate-bad">1</td><td class="rate-bad">1</td><td class="rate-good">100.0</td><td class="rate-bad">1.9</td><td class="rate-good">100.0</td></tr>
+<tr><td>2.30.2</td><td>37</td><td class="rate-bad">33</td><td>37</td><td class="rate-bad">7</td><td class="rate-bad">6</td><td class="rate-good">89.2</td><td class="rate-bad">21.2</td><td class="rate-good">85.7</td></tr>
+<tr><td>2.28.10</td><td>36</td><td class="rate-bad">32</td><td>32</td><td class="rate-bad">5</td><td class="rate-bad">4</td><td class="rate-good">88.9</td><td class="rate-bad">15.6</td><td class="rate-good">80.0</td></tr>
+<tr><td>2.29.1</td><td>36</td><td class="rate-bad">33</td><td>36</td><td class="rate-bad">2</td><td class="rate-bad">1</td><td class="rate-good">91.7</td><td class="rate-bad">6.1</td><td class="rate-mid">50.0</td></tr>
+</tbody></table></div>
+<h2 id="pa-rca">Problem A — Root-Cause Analysis</h2>
+<h3>Root Cause #1: 31.1% of eligible users never reach the hub</h3>
+
+<div class="callout callout-warning"><span class="callout-icon">⚠️</span><span class="lbl lbl-global">GLOBAL_DIRECT</span> <span class="lbl lbl-cis-direct">CIS_DIRECT</span> &mdash; Of 65,001 eligible users with usable config, 20,241 (31.1%) never generated an <code>Affiliate Click</code>. This is the largest funnel gap in Problem A.</div>
+<p><strong>Segmentation breakdown:</strong></p>
+<ul>
+<li><strong>By lineage:</strong> DOGI users reach the hub at 64.0% vs auto-redirect at 87.1%.
+    The DOGI flow requires user interaction (clicking DOGI coin/product thumbnail), while
+    auto-redirect fires automatically. The 23pp gap represents ~11,900 missed activations
+    from DOGI users.</li>
+<li><strong>By version:</strong> Older versions (3.0.x and 2.30.x) have dramatically lower hub
+    reach rates: 3.0.5 at 6.7%, 3.0.3 at 3.2%, 2.30.8 at 14.3%. These collectively affect
+    ~3,400 users. Version 3.1.0 (24,890 users) reaches 62.1% vs 3.1.2 at 89.8% &mdash;
+    a 27.7pp gap affecting ~6,900 users within v3.1.0.</li>
+<li><strong>By browser:</strong> The "other" browser category (3,964 users) has only 31.2% hub
+    reach &mdash; these browsers may not support the required extension APIs.
+    Safari (4 users) is negligible.</li>
+</ul>
+<h3>Root Cause #2: 6.3% of Global hub users have no sk return</h3>
+
+<div class="callout callout-info"><span class="callout-icon">ℹ️</span><span class="lbl lbl-global">GLOBAL_DIRECT</span> &mdash; 32,531 of 34,729 Global users who reached the hub (93.7%) returned to AliExpress with an AliHelper-owned <code>sk</code>. The remaining 2,198 (6.3%) show no <code>sk</code> in subsequent events.</div>
+<p><strong>Evidence:</strong></p>
+<ul>
+<li>Global <code>sk</code> return is functional across all versions, browsers, and hubs
+    (all ~95% return rate). This is not a systemic failure.</li>
+<li>The 6.3% gap likely represents: redirect timeouts, user cancellations (closing tab
+    before return), ad-blockers or privacy extensions stripping query parameters,
+    or users navigating away from AliExpress before the return event fires.</li>
+<li>A5 check: 404 Global users had our <code>sk</code> without <code>Affiliate Click</code>
+    in Mixpanel &mdash; a minor Mixpanel event-delivery loss (~1.2% of Global hub users).</li>
+<li>By browser: Edge shows highest return rate at 99.1%, while Firefox shows 90.9% &mdash;
+    the auto-redirect flow in Firefox may occasionally lose the sk during its redirect chain.</li>
+</ul>
+<h3>Root Cause #3: CIS-specific issues (smaller but actionable)</h3>
+
+<div class="callout callout-info"><span class="callout-icon">ℹ️</span><span class="lbl lbl-cis-direct">CIS_DIRECT</span> <span class="lbl lbl-cis-proxy">CIS_PROXY</span> &mdash; CIS performs well: 95.6% direct UTM return rate and ~100% total return (including proxy). But 213 CIS users reached the hub with no return, and 210 had UTM markers but no Affiliate Click (tracking gap).</div>
+<p><strong>CIS details:</strong></p>
+<ul>
+<li>210 CIS users show AliHelper UTM markers without <code>Affiliate Click</code> in
+    Mixpanel &mdash; a minor Mixpanel event-delivery loss (~2.1% of CIS hub users).</li>
+<li>213 CIS users reached hub but had neither UTM nor proxy return &mdash; possible
+    hub-side failures or abandoned redirects.</li>
+<li>CIS hub reach rate is 64.5% (vs Global 70.2%), partly because BY (Belarus) shows
+    57.3% hub reach.</li>
+<li>Yandex browser shows 95.4% return rate &mdash; consistent with CIS-heavy
+    user base (Yandex is predominantly Russian).</li>
+</ul>
+<h3>Impact Quantification &mdash; Problem A</h3>
+
+<h4 class='tbl-caption'>Problem A &mdash; Impact by Cause</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>Cause</th><th>Label</th><th>Affected Users</th><th>% of Total</th><th>Severity</th><th>Fixability</th></tr></thead>
+<tbody>
+<tr><td>Hub-reach gap: DOGI vs auto-redirect</td><td><span class="lbl lbl-global">GLOBAL_DIRECT</span> <span class="lbl lbl-cis-direct">CIS_DIRECT</span></td><td>~11,900</td><td>~17.9%</td><td>High &mdash; missed activation opportunities</td><td>Medium &mdash; product UX, DOGI prominence, auto-trigger exploration</td></tr>
+<tr><td>Version 3.1.0 underperformance vs 3.1.2</td><td><span class="lbl lbl-global">GLOBAL_DIRECT</span> <span class="lbl lbl-cis-direct">CIS_DIRECT</span></td><td>~6,900</td><td>~10.4%</td><td>Medium &mdash; fixable with version upgrade push</td><td>High &mdash; push users to 3.1.2+</td></tr>
+<tr><td>Legacy versions (< 3.1.0) very low hub reach</td><td><span class="lbl lbl-global">GLOBAL_DIRECT</span> <span class="lbl lbl-cis-direct">CIS_DIRECT</span></td><td>~3,400</td><td>~5.1%</td><td>Medium</td><td>High &mdash; force-update or deprecate</td></tr>
+<tr><td>Global sk return gap (6.3%)</td><td><span class="lbl lbl-global">GLOBAL_DIRECT</span></td><td>2,198</td><td>3.3%</td><td>Low &mdash; 93.7% return rate is healthy</td><td>Low &mdash; diminishing returns to optimize further</td></tr>
+<tr><td>CIS Mixpanel tracking loss</td><td><span class="lbl lbl-cis-direct">CIS_DIRECT</span></td><td>210 + 213</td><td>0.6%</td><td>Low</td><td>Low priority</td></tr>
+</tbody></table></div>
+<h2 id="pb-data">5. Problem B — Purchase Completed without Purchase</h2>
+<div class="kpi-grid"><div class="kpi-card"><div class="kpi-value kpi-neutral">484,556</div><div class="kpi-label">Total Purchase Completed</div></div><div class="kpi-card"><div class="kpi-value kpi-warn">244,456 (50.4%)</div><div class="kpi-label">Matched to Purchase</div></div><div class="kpi-card"><div class="kpi-value kpi-bad">240,100 (49.6%)</div><div class="kpi-label">Unmatched (gap)</div></div></div>
+<h3>B1 — Attribution evidence</h3>
+<p><span class="lbl lbl-global">GLOBAL_DIRECT</span> Global: 377,286/442,237 (85.3%) had our affiliate marker in 72 h<br><span class="lbl lbl-cis-direct">CIS_DIRECT</span> CIS: 35,432/42,319 (83.7%) had our affiliate marker in 72 h</p>
+<h4 class='tbl-caption'>Reason codes — Global</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>Reason Code</th><th>Count</th><th>%</th><th></th></tr></thead>
+<tbody>
+<tr><td><code>FOREIGN_SK_AFTER_OUR_SK</code></td><td>156,550</td><td class="rate-mid">70.4%</td><td><div class="rc-bar-wrap"><div class="rc-bar" style="width:70.4%"></div></div></td></tr>
+<tr><td><code>NO_OUR_SK_IN_72H</code></td><td>59,140</td><td class="rate-bad">26.6%</td><td><div class="rc-bar-wrap"><div class="rc-bar" style="width:26.6%"></div></div></td></tr>
+<tr><td><code>UNKNOWN</code></td><td>6,518</td><td class="rate-bad">2.9%</td><td><div class="rc-bar-wrap"><div class="rc-bar" style="width:2.9%"></div></div></td></tr>
+<tr><td><code>CASHBACK_TRACE</code></td><td>36</td><td class="rate-bad">0.0%</td><td><div class="rc-bar-wrap"><div class="rc-bar" style="width:0.0%"></div></div></td></tr>
+</tbody></table></div>
+<h4 class='tbl-caption'>Reason codes — CIS</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>Reason Code</th><th>Count</th><th>%</th><th></th></tr></thead>
+<tbody>
+<tr><td><code>CIS_UNKNOWN</code></td><td>8,145</td><td class="rate-bad">45.6%</td><td><div class="rc-bar-wrap"><div class="rc-bar" style="width:45.6%"></div></div></td></tr>
+<tr><td><code>CIS_NO_OUR_UTM_IN_72H</code></td><td>5,222</td><td class="rate-bad">29.2%</td><td><div class="rc-bar-wrap"><div class="rc-bar" style="width:29.2%"></div></div></td></tr>
+<tr><td><code>CIS_FOREIGN_UTM_AFTER_OURS</code></td><td>4,489</td><td class="rate-bad">25.1%</td><td><div class="rc-bar-wrap"><div class="rc-bar" style="width:25.1%"></div></div></td></tr>
+</tbody></table></div>
+<h4 class='tbl-caption'>Reason codes — All</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>Reason Code</th><th>Count</th><th>%</th><th></th></tr></thead>
+<tbody>
+<tr><td><code>FOREIGN_SK_AFTER_OUR_SK</code></td><td>156,550</td><td class="rate-mid">65.2%</td><td><div class="rc-bar-wrap"><div class="rc-bar" style="width:65.2%"></div></div></td></tr>
+<tr><td><code>NO_OUR_SK_IN_72H</code></td><td>59,140</td><td class="rate-bad">24.6%</td><td><div class="rc-bar-wrap"><div class="rc-bar" style="width:24.6%"></div></div></td></tr>
+<tr><td><code>CIS_UNKNOWN</code></td><td>8,145</td><td class="rate-bad">3.4%</td><td><div class="rc-bar-wrap"><div class="rc-bar" style="width:3.4%"></div></div></td></tr>
+<tr><td><code>UNKNOWN</code></td><td>6,518</td><td class="rate-bad">2.7%</td><td><div class="rc-bar-wrap"><div class="rc-bar" style="width:2.7%"></div></div></td></tr>
+<tr><td><code>CIS_NO_OUR_UTM_IN_72H</code></td><td>5,222</td><td class="rate-bad">2.2%</td><td><div class="rc-bar-wrap"><div class="rc-bar" style="width:2.2%"></div></div></td></tr>
+<tr><td><code>CIS_FOREIGN_UTM_AFTER_OURS</code></td><td>4,489</td><td class="rate-bad">1.9%</td><td><div class="rc-bar-wrap"><div class="rc-bar" style="width:1.9%"></div></div></td></tr>
+<tr><td><code>CASHBACK_TRACE</code></td><td>36</td><td class="rate-bad">0.0%</td><td><div class="rc-bar-wrap"><div class="rc-bar" style="width:0.0%"></div></div></td></tr>
+</tbody></table></div>
+<h4 class='tbl-caption'>Problem B — by region</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>region</th><th>total</th><th>matched</th><th>unmatched</th><th>loss_rate</th></tr></thead>
+<tbody>
+<tr><td>Global</td><td>442,237</td><td>219,993</td><td>222,244</td><td class="rate-mid">50.3</td></tr>
+<tr><td>CIS</td><td>42,319</td><td>24,463</td><td>17,856</td><td class="rate-bad">42.2</td></tr>
+</tbody></table></div>
+<h4 class='tbl-caption'>Problem B — by browser</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>browser_fam</th><th>total</th><th>matched</th><th>unmatched</th><th>loss_rate</th></tr></thead>
+<tbody>
+<tr><td>chrome</td><td>405,084</td><td>198,233</td><td>206,851</td><td class="rate-mid">51.1</td></tr>
+<tr><td>firefox</td><td>34,706</td><td>21,586</td><td>13,120</td><td class="rate-bad">37.8</td></tr>
+<tr><td>edge</td><td>19,177</td><td>11,082</td><td>8,095</td><td class="rate-bad">42.2</td></tr>
+<tr><td>yandex</td><td>16,127</td><td>9,404</td><td>6,723</td><td class="rate-bad">41.7</td></tr>
+<tr><td>opera</td><td>8,881</td><td>3,988</td><td>4,893</td><td class="rate-mid">55.1</td></tr>
+<tr><td>other</td><td>581</td><td>163</td><td>418</td><td class="rate-mid">71.9</td></tr>
+</tbody></table></div>
+<h4 class='tbl-caption'>Problem B — by lineage</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>lineage</th><th>total</th><th>matched</th><th>unmatched</th><th>loss_rate</th></tr></thead>
+<tbody>
+<tr><td>dogi</td><td>430,673</td><td>211,788</td><td>218,885</td><td class="rate-mid">50.8</td></tr>
+<tr><td>auto-redirect</td><td>53,883</td><td>32,668</td><td>21,215</td><td class="rate-bad">39.4</td></tr>
+</tbody></table></div>
+<h4 class='tbl-caption'>Problem B — by country</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>country</th><th>total</th><th>matched</th><th>unmatched</th><th>loss_rate</th></tr></thead>
+<tbody>
+<tr><td>PK</td><td>151,490</td><td>62,413</td><td>89,077</td><td class="rate-mid">58.8</td></tr>
+<tr><td>GB</td><td>86,417</td><td>51,334</td><td>35,083</td><td class="rate-bad">40.6</td></tr>
+<tr><td>RU</td><td>35,761</td><td>20,939</td><td>14,822</td><td class="rate-bad">41.4</td></tr>
+<tr><td>US</td><td>20,787</td><td>14,448</td><td>6,339</td><td class="rate-bad">30.5</td></tr>
+<tr><td>AU</td><td>17,378</td><td>10,469</td><td>6,909</td><td class="rate-bad">39.8</td></tr>
+<tr><td>ES</td><td>14,761</td><td>7,454</td><td>7,307</td><td class="rate-bad">49.5</td></tr>
+<tr><td>UA</td><td>12,930</td><td>6,515</td><td>6,415</td><td class="rate-bad">49.6</td></tr>
+<tr><td>BR</td><td>11,703</td><td>3,569</td><td>8,134</td><td class="rate-mid">69.5</td></tr>
+<tr><td>PL</td><td>11,221</td><td>4,874</td><td>6,347</td><td class="rate-mid">56.6</td></tr>
+<tr><td>FR</td><td>11,042</td><td>5,006</td><td>6,036</td><td class="rate-mid">54.7</td></tr>
+<tr><td>DE</td><td>10,146</td><td>4,919</td><td>5,227</td><td class="rate-mid">51.5</td></tr>
+<tr><td>CL</td><td>8,823</td><td>4,428</td><td>4,395</td><td class="rate-bad">49.8</td></tr>
+<tr><td>MX</td><td>7,824</td><td>3,313</td><td>4,511</td><td class="rate-mid">57.7</td></tr>
+<tr><td>IT</td><td>6,712</td><td>3,712</td><td>3,000</td><td class="rate-bad">44.7</td></tr>
+<tr><td>IL</td><td>6,576</td><td>3,298</td><td>3,278</td><td class="rate-bad">49.8</td></tr>
+<tr><td>BG</td><td>4,678</td><td>2,387</td><td>2,291</td><td class="rate-bad">49.0</td></tr>
+<tr><td>PT</td><td>4,012</td><td>2,149</td><td>1,863</td><td class="rate-bad">46.4</td></tr>
+<tr><td>PE</td><td>3,814</td><td>2,235</td><td>1,579</td><td class="rate-bad">41.4</td></tr>
+<tr><td>NL</td><td>3,387</td><td>1,699</td><td>1,688</td><td class="rate-bad">49.8</td></tr>
+<tr><td>LT</td><td>3,131</td><td>1,918</td><td>1,213</td><td class="rate-bad">38.7</td></tr>
+</tbody></table></div>
+<h2 id="pb-rca">Problem B — Root-Cause Analysis</h2>
+<h3>Root Cause #1: Foreign affiliate overwrite (65.2% of gap)</h3>
+
+<div class="callout callout-critical"><span class="callout-icon">❗</span><span class="lbl lbl-global">GLOBAL_DIRECT</span> &mdash; 156,550 of 240,100 unmatched Purchase Completed events (65.2%) are Global users with reason code <code>FOREIGN_SK_AFTER_OUR_SK</code>. AliHelper's <code>sk</code> was present in the 72h attribution window but was subsequently overwritten by a third-party <code>sk</code> before purchase.</div>
+<p><strong>This is a last-click attribution problem.</strong> The affiliate activation
+flow works correctly &mdash; our <code>sk</code> is set. But between activation and purchase,
+the user encounters another affiliate source (cashback extension, coupon site, price comparison
+tool, or another browser extension) that replaces AliHelper's <code>sk</code> with its own.</p>
+
+<p><strong>Scale of the overwrite problem:</strong></p>
+<ul>
+<li>85.3% of Global Purchase Completed (377,286 / 442,237) had our <code>sk</code> in the 72h window</li>
+<li>Of those, <strong>94.1%</strong> (355,158) were subsequently overwritten by a foreign <code>sk</code></li>
+<li>156,550 ended up unmatched (the overwrite caused commission loss)</li>
+<li>The remaining ~198,000 with overwrite still matched to a <code>Purchase</code> &mdash;
+    these may be cases where the overwrite happened after the commission was already locked in,
+    or where the time-based matching is coincidental</li>
+</ul>
+
+<p><strong>Causal chain:</strong></p>
+<ol>
+<li>User visits AliExpress product page &rarr; extension activates &rarr; hub redirect</li>
+<li>User returns with our <code>sk</code> (e.g., <code>_c36PoUEj</code>)</li>
+<li>Before purchasing, user visits a cashback site / coupon extension / other affiliate link</li>
+<li>Third-party affiliate sets a different <code>sk</code> (e.g., <code>_ePNSNV</code>)</li>
+<li>User completes purchase &rarr; commission goes to the last <code>sk</code> owner (not us)</li>
+<li><code>Purchase Completed</code> fires, but no AliHelper <code>Purchase</code> is generated</li>
+</ol>
+<h3>Root Cause #2: No AliHelper sk in 72h window (24.6% of gap)</h3>
+
+<div class="callout callout-warning"><span class="callout-icon">⚠️</span><span class="lbl lbl-global">GLOBAL_DIRECT</span> &mdash; 59,140 Global Purchase Completed events (24.6% of gap) had no AliHelper-owned <code>sk</code> at all in the 72-hour attribution window.</div>
+<p>These users made purchases without any prior AliHelper affiliate activation in 72h.
+Possible explanations:</p>
+<ul>
+<li>User browsed AliExpress directly without triggering the extension</li>
+<li>User was on ineligible pages (search, homepage, cart) and the extension did not activate</li>
+<li>Affiliate activation occurred more than 72 hours before the purchase</li>
+<li>Extension was disabled or not installed during the browsing session preceding purchase</li>
+<li>The user belongs to the 31.1% who never reach the hub (Problem A Root Cause #1)</li>
+</ul>
+<h3>Root Cause #3: Global unknown losses (2.7% of gap)</h3>
+
+<div class="callout callout-info"><span class="callout-icon">ℹ️</span><span class="lbl lbl-global">GLOBAL_DIRECT</span> &mdash; 6,518 Global Purchase Completed events (2.7% of gap) had our <code>sk</code> and no detected foreign overwrite, yet no matching <code>Purchase</code>.</div>
+<p>Possible explanations:</p>
+<ul>
+<li><strong>Delayed postback:</strong> Partner network <code>Purchase</code> events may arrive later
+    than our analysis window.</li>
+<li><strong>Cashback interference:</strong> Not detectable from <code>querySk</code> alone &mdash;
+    cashback tools may operate through mechanisms other than sk replacement.</li>
+<li><strong>Partner program exclusions:</strong> Certain product categories or seller types may be
+    excluded from commission eligibility.</li>
+<li><strong>af parameter overwrite:</strong> The <code>af</code> parameter is not detectable from
+    the <code>querySk</code> field. Some overwrites may use <code>af</code> instead of <code>sk</code>.</li>
+</ul>
+<h3>Root Cause #4: CIS losses (7.5% of gap combined)</h3>
+
+<div class="callout callout-info"><span class="callout-icon">ℹ️</span><span class="lbl lbl-cis-direct">CIS_DIRECT</span> &mdash; CIS contributes 17,856 unmatched purchases (7.4% of gap), split across three reason codes.</div>
+
+<ul>
+<li><strong>CIS_UNKNOWN: 8,145 (3.4%)</strong> &mdash; Our UTM markers present, no foreign overwrite
+    detected, but no matching <code>Purchase</code>. Likely delayed postback, cashback interference
+    (stored in client local storage, not observable), or partner program exclusions.</li>
+<li><strong>CIS_NO_OUR_UTM_IN_72H: 5,222 (2.2%)</strong> &mdash; No AliHelper UTM markers in 72h.
+    Users who purchased without prior AliHelper affiliate activation.</li>
+<li><strong>CIS_FOREIGN_UTM_AFTER_OURS: 4,489 (1.9%)</strong> &mdash; Our UTM was overwritten by
+    foreign affiliate UTMs. Of 35,432 CIS purchases with our markers, 6,653 (18.8%) were overwritten.
+    Same last-click attribution problem as Global, but smaller scale.</li>
+</ul>
+<h3>Matching Sensitivity Analysis (B4)</h3>
+
+<h4 class='tbl-caption'>Purchase matching sensitivity</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>Window</th><th>Matched</th><th>Match Rate</th><th>Delta vs 10min</th></tr></thead>
+<tbody>
+<tr><td>5 min</td><td>194,790</td><td>40.2%</td><td>-10.2pp</td></tr>
+<tr><td>10 min (current)</td><td>244,456</td><td>50.4%</td><td>baseline</td></tr>
+<tr><td>15 min</td><td>257,665</td><td>53.2%</td><td>+2.8pp</td></tr>
+<tr><td>20 min</td><td>265,783</td><td>54.9%</td><td>+4.5pp</td></tr>
+</tbody></table></div>
+<p>Widening from 10 to 20 minutes recovers only 21,327 additional matches (4.5pp).
+The diminishing returns suggest the core gap is not a matching-window artifact &mdash; it reflects
+genuinely unattributed purchases where no commission-bearing <code>Purchase</code> was generated
+by AliExpress's partner system.</p>
+<h3>Segment-Level Observations (B5)</h3>
+
+
+<ul>
+<li><strong>Pakistan</strong> dominates volume (151,490 PC, 31.3% of total) with 58.8% loss rate.
+    High overwrite rate suggests aggressive cashback/coupon ecosystem in PK.</li>
+<li><strong>Brazil</strong> shows the highest loss rate at 69.5% (11,703 PC) &mdash;
+    likely similar cashback/coupon interference pattern.</li>
+<li><strong>US</strong> has the lowest loss rate at 30.5% (20,787 PC) &mdash; possibly
+    fewer competing affiliate extensions or better purchase-timing patterns.</li>
+<li><strong>Opera</strong> browser shows 55.1% loss (8,881 PC) &mdash; highest among browsers.
+    Opera has a built-in cashback feature that may compete for affiliate attribution.</li>
+<li><strong>Auto-redirect</strong> lineage has 39.4% loss vs DOGI's 50.8% &mdash;
+    auto-redirect users complete the purchase sooner after activation, leaving less
+    time for overwrite.</li>
+</ul>
+<h3>Impact Quantification &mdash; Problem B</h3>
+
+<h4 class='tbl-caption'>Problem B &mdash; Gap Attribution</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>Cause</th><th>Label</th><th>Unmatched Purchases</th><th>% of Gap</th><th>Confidence</th><th>Fixability</th></tr></thead>
+<tbody>
+<tr><td>Foreign sk overwrite (Global last-click loss)</td><td><span class="lbl lbl-global">GLOBAL_DIRECT</span></td><td>156,550</td><td>65.2%</td><td>High</td><td>Hard &mdash; structural last-click competition; mitigate via faster checkout nudge</td></tr>
+<tr><td>No AliHelper sk in 72h (Global no activation)</td><td><span class="lbl lbl-global">GLOBAL_DIRECT</span></td><td>59,140</td><td>24.6%</td><td>High</td><td>Medium &mdash; improve hub reach (see Problem A)</td></tr>
+<tr><td>CIS unknown (delayed postback + cashback + partner rules)</td><td><span class="lbl lbl-cis-direct">CIS_DIRECT</span></td><td>8,145</td><td>3.4%</td><td>Medium</td><td>Partially fixable: longer postback wait, cashback detection</td></tr>
+<tr><td>Global unknown (sk present, no foreign overwrite detected)</td><td><span class="lbl lbl-global">GLOBAL_DIRECT</span></td><td>6,518</td><td>2.7%</td><td>Medium</td><td>Investigate af-parameter overwrite, cashback, partner exclusions</td></tr>
+<tr><td>CIS no AliHelper UTM in 72h</td><td><span class="lbl lbl-cis-direct">CIS_DIRECT</span></td><td>5,222</td><td>2.2%</td><td>Medium</td><td>Improve activation coverage for CIS users</td></tr>
+<tr><td>CIS foreign affiliate overwrite</td><td><span class="lbl lbl-cis-direct">CIS_DIRECT</span></td><td>4,489</td><td>1.9%</td><td>High</td><td>Hard &mdash; same last-click competition as Global</td></tr>
+</tbody></table></div>
+<h2 id="ranked">6. Ranked Root Causes by Impact</h2>
+<p>The following table ranks all identified root causes across both problems,
+ordered by estimated impact.</p>
+<h4 class='tbl-caption'>All Root Causes &mdash; Ranked by Impact</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>Rank</th><th>Root Cause</th><th>Problem</th><th>Label</th><th>Impact</th><th>Confidence</th><th>Recommended Fix</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><strong>Foreign sk overwrite</strong> &mdash; Third-party affiliates (cashback, coupons, competing extensions) replace our <code>sk</code> before purchase completion</td><td>B</td><td><span class="lbl lbl-global">GLOBAL_DIRECT</span></td><td>156,550 unmatched purchases (65.2% of gap);<br>94.1% of Global users with our marker get overwritten</td><td>High</td><td>Re-activation on checkout; time-to-overwrite analysis; profile foreign sk values</td></tr>
+<tr><td>2</td><td><strong>No AliHelper sk in 72h</strong> &mdash; Global users purchasing without any prior affiliate activation in the attribution window</td><td>B</td><td><span class="lbl lbl-global">GLOBAL_DIRECT</span></td><td>59,140 unmatched purchases (24.6% of gap)</td><td>High</td><td>Improve hub reach (fix #3, #4, #5)</td></tr>
+<tr><td>3</td><td><strong>DOGI vs auto-redirect activation gap</strong> &mdash; DOGI users reach hub at 64.0% vs auto-redirect at 87.1%</td><td>A</td><td><span class="lbl lbl-global">GLOBAL_DIRECT</span> <span class="lbl lbl-cis-direct">CIS_DIRECT</span></td><td>~11,900 missed activations/month (17.9% of users)</td><td>High</td><td>Improve DOGI UX, consider hybrid auto-trigger</td></tr>
+<tr><td>4</td><td><strong>Version 3.1.0 underperformance</strong> &mdash; 62.1% hub reach vs 3.1.2's 89.8%</td><td>A</td><td><span class="lbl lbl-global">GLOBAL_DIRECT</span> <span class="lbl lbl-cis-direct">CIS_DIRECT</span></td><td>~6,900 missed activations/month (10.4% of users)</td><td>High</td><td>Push update to 3.1.2+</td></tr>
+<tr><td>5</td><td><strong>CIS unknown losses</strong> &mdash; our UTM present, no foreign overwrite detected, but no Purchase credited</td><td>B</td><td><span class="lbl lbl-cis-direct">CIS_DIRECT</span></td><td>8,145 unmatched purchases (3.4% of gap)</td><td>Medium</td><td>Improve cashback detection; investigate partner delays</td></tr>
+<tr><td>6</td><td><strong>Global unknown losses</strong> &mdash; our sk present, no foreign overwrite detected, but no Purchase; possibly af overwrite</td><td>B</td><td><span class="lbl lbl-global">GLOBAL_DIRECT</span></td><td>6,518 unmatched purchases (2.7% of gap)</td><td>Medium</td><td>Log af parameter; investigate partner exclusions</td></tr>
+<tr><td>7</td><td><strong>CIS foreign affiliate overwrite</strong> &mdash; last-click attribution loss to competing affiliates (18.8% overwrite rate)</td><td>B</td><td><span class="lbl lbl-cis-direct">CIS_DIRECT</span></td><td>4,489 unmatched purchases (1.9% of gap)</td><td>High</td><td>Same re-activation approach as Global</td></tr>
+<tr><td>8</td><td><strong>Legacy extension versions (&lt;3.1.0)</strong> &mdash; hub reach rates of 3-19%</td><td>A</td><td><span class="lbl lbl-global">GLOBAL_DIRECT</span> <span class="lbl lbl-cis-direct">CIS_DIRECT</span></td><td>~3,400 users with near-zero activation</td><td>High</td><td>Force-update or deprecate</td></tr>
+</tbody></table></div>
+<h2 id="unexplained">7. Unexplained Remainder</h2>
+
+<p><strong>Problem A:</strong> Global sk return rate is 93.7% &mdash; healthy, with a small
+6.3% gap likely due to redirect timeouts, ad-blockers, or abandoned navigations. On the hub-reach
+side, ~31% of eligible users do not reach the hub. After accounting for DOGI vs auto-redirect
+lineage differences and version-specific underperformance, approximately 5-8% of eligible users
+remain unexplained (possibly due to cooldown collisions, extension load failures, or intermittent
+network issues).</p>
+
+<p><strong>Problem B:</strong> After attributing 65.2% to foreign sk overwrite, 24.6% to no sk
+in 72h, 2.7% to Global unknown, and 7.5% to CIS causes:</p>
+<ul>
+<li><strong>Global UNKNOWN (6,518 events, 2.7%)</strong> is the primary unexplained Global component.
+    These had our sk with no detected foreign overwrite &mdash; possible <code>af</code>-parameter
+    overwrite (not detectable from <code>querySk</code> alone), delayed postback, or partner exclusions.</li>
+<li><strong>CIS_UNKNOWN (8,145 events, 3.4%)</strong> is the primary unexplained CIS component.
+    Improved cashback observability and longer postback windows would likely reclassify
+    most of this residual.</li>
+<li>Purchase matching imprecision may account for some false negatives (widening to 20min
+    recovers +4.5pp), but the marginal gain is small.</li>
+</ul>
+<h2 id="recs">8. Recommended Fixes</h2>
+<h3>Quick Wins (deployable in 1-2 sprints)</h3>
+
+<ol>
+<li><strong>Push extension update to 3.1.2+.</strong> Version 3.1.0 (24,890 users) has 62.1%
+    hub reach vs 3.1.2's 89.8%. A forced update would recover an estimated ~6,900 activations/month.</li>
+<li><strong>Deprecate legacy versions (&lt; 3.1.0).</strong> Versions 3.0.x and 2.30.x affect
+    ~3,400 users with 3-19% hub reach rates. Force-update or disable affiliate features.</li>
+<li><strong>Profile the top foreign <code>sk</code> values</strong> overwriting ours. Identify
+    whether the overwrite is dominated by a few known cashback/coupon extensions, or is broadly
+    distributed. This determines whether targeted countermeasures are viable.</li>
+<li><strong>Extract UTM to dedicated indexed fields</strong> at write time in
+    <code>events.payload</code>. Improves future analysis speed and reliability.</li>
+</ol>
+<h3>Medium-Term Product Changes (1-3 months)</h3>
+
+<ol>
+<li><strong>Reduce time between activation and purchase.</strong> The overwrite window is the time
+    between our <code>sk</code> being set and the user completing purchase. Strategies: purchase
+    nudges on product pages, streamlined checkout flow, or re-activation before checkout.</li>
+<li><strong>Implement re-activation on checkout.</strong> If the extension detects the user is
+    approaching checkout and our <code>sk</code> has been overwritten (foreign sk detected in URL),
+    trigger a silent re-redirect to restore our affiliate state.</li>
+<li><strong>Improve DOGI activation rate.</strong> DOGI's 64.0% hub reach vs auto-redirect's
+    87.1% represents a large gap. Consider: more prominent DOGI coin, auto-trigger on hover,
+    or a hybrid approach where DOGI users get periodic auto-redirects.</li>
+<li><strong>Add normalized affiliate metadata fields</strong> to <code>events</code>:
+    <code>affiliate_provider</code>, <code>is_alihelper_owned</code>,
+    <code>affiliate_marker_type</code>.</li>
+</ol>
+<h3>Tracking and Instrumentation Changes</h3>
+
+<ol>
+<li><strong>Log overwrite events.</strong> When the extension detects that <code>querySk</code>
+    has changed from our owned value to a foreign value, fire a dedicated
+    <code>Affiliate Overwrite Detected</code> event with: previous sk, new sk, time since
+    our activation. This provides real-time overwrite telemetry.</li>
+<li><strong>Instrument cashback detection.</strong> Where the extension detects cashback-site
+    cookies or interference, log this as a backend event (currently only in client local storage).</li>
+<li><strong>Add CIS state tracking fields</strong> (analogous to Global's <code>last_sk</code>):
+    <code>last_epn_campaign</code>, <code>last_epn_source</code>, <code>last_epn_datetime</code>.</li>
+<li><strong>Log auto-redirect attempts</strong> (success/failure) as backend events. Currently
+    there is no direct signal of whether a redirect was attempted, only downstream evidence.</li>
+<li><strong>Log the <code>af</code> parameter</strong> separately from <code>querySk</code>.
+    Currently <code>querySk</code> stores only the raw sk value; <code>af</code> is not captured,
+    making af-based overwrite invisible. The 6,518 Global UNKNOWN cases may be af overwrites.</li>
+</ol>
+<h3>Follow-Up Experiments and Analyses</h3>
+
+<ol>
+<li><strong>Foreign sk profiling.</strong> Identify the top 10 foreign <code>sk</code> values
+    that overwrite ours. Cross-reference with known cashback providers and competing extensions.
+    This will show whether the overwrite is concentrated (targetable) or diffuse (structural).</li>
+<li><strong>Time-to-overwrite analysis.</strong> Measure the median time between our <code>sk</code>
+    being set and the foreign overwrite. If it's short (minutes), the overwrite may happen during
+    the same browsing session. If long (hours/days), it's separate sessions.</li>
+<li><strong>A/B test re-activation on checkout.</strong> For a sample of users, silently
+    re-activate our affiliate link when the user navigates to checkout. Measure impact on
+    <code>Purchase</code> match rate.</li>
+<li><strong>CIS cashback deep dive.</strong> For the 8,145 CIS_UNKNOWN cases, extract
+    <code>cashback_list</code> values where available and correlate with known cashback provider
+    patterns to estimate cashback interference share.</li>
+<li><strong>Country-level overwrite analysis.</strong> PK (58.8% loss) and BR (69.5% loss) show
+    high loss rates. Profile whether these countries have specific cashback ecosystems that
+    drive higher overwrite rates.</li>
+</ol>
+
+<hr>
+<p class="meta">
+End of report &nbsp;·&nbsp; Generated 2026-04-09 10:15 UTC<br>
+Pipeline: <code>analysis/extract.py</code>, <code>analysis/problem_a.py</code>,
+<code>analysis/problem_b.py</code>, <code>analysis/report.py</code> &nbsp;·&nbsp;
+Data in <code>cache/</code><br>
+Regional routing: <code>specs/domain/regional_routing.md</code> (UA = Global) &nbsp;·&nbsp;
+Attribution: <code>specs/domain/attribution.md</code>
+</p>
+</main>
 </div>
-
-<!-- DEFINITIONS -->
-<div class="section" id="definitions">
-  <div class="section-title"><span class="icon">📌</span> Определения</div>
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>#</th><th>Термин</th><th>Определение</th></tr></thead>
-      <tbody>
-        <tr><td>1</td><td>Canonical user identity</td><td><code>guests._id</code> = <code>events.guest_id</code> = Mixpanel <code>$user_id</code></td></tr>
-        <tr><td>2</td><td>AliHelper-owned sk</td><td><code>_c36PoUEj</code>, <code>_d6jWDbY</code>, <code>_AnTGXs</code>, <code>_olPBn9X</code>, <code>_dVh6yw5</code></td></tr>
-        <tr><td>3</td><td>Foreign affiliate state</td><td><code>querySk</code> не в whitelist ИЛИ любой <code>af</code> параметр</td></tr>
-        <tr><td>4</td><td>Eligible opportunity</td><td><code>payload.productId != null</code> ИЛИ пустой pathname (homepage)</td></tr>
-        <tr><td>5</td><td>Attribution window</td><td>72 часа до <code>Purchase Completed</code></td></tr>
-        <tr><td>6</td><td>Overwrite</td><td>Наш sk был, затем появился foreign sk / af до покупки</td></tr>
-        <tr><td>7</td><td>Mature cohort (B)</td><td>PC Feb 27 – Mar 26 UTC (28 дней, исключает last 7 дней до даты анализа)</td></tr>
-        <tr><td>8</td><td>Purchase matching</td><td>Тот же <code>$user_id</code> + ±10 мин по UTC <code>time</code></td></tr>
-        <tr><td>9</td><td>Return-to-AliExpress</td><td><code>events.payload.querySk</code> ∈ OUR_SKS для того же guest_id после eligible визита</td></tr>
-        <tr><td>10</td><td>Latest delivered config</td><td>Последний <code>guestStateHistory</code> по <code>_id</code> до eligible события; lookback 14 дней</td></tr>
-        <tr><td>11</td><td>Auto-redirect lineage</td><td>Firefox, Edge</td></tr>
-        <tr><td>12</td><td>DOGI lineage</td><td>Chrome, Yandex, Opera и прочие Chrome-like</td></tr>
-      </tbody>
-    </table>
-  </div>
-</div>
-
-<!-- CAVEATS -->
-<div class="section" id="caveats">
-  <div class="section-title"><span class="icon">⚠️</span> Data Quality & Observability Caveats</div>
-  <ul class="caveat-list">
-    <li><strong>Delayed postback.</strong> Purchase-постбэки приходят с задержкой часы–дни. 10-мин matching даёт только 50–60% совпадений даже при ±60 мин. Истинный gap = net raw gap (33K), не per-event mismatch (258K).</li>
-    <li><strong>order_id отсутствует в большинстве PC.</strong> Matching строится на user+time proximity.</li>
-    <li><strong>guestStateHistory — доставка конфига, не использование.</strong> Не доказывает, что редирект реально выполнился.</li>
-    <li><strong>Нет backend-лога auto-redirect попыток.</strong> Только косвенные сигналы: Affiliate Click и querySk.</li>
-    <li><strong>Partial cashback observability.</strong> cashback_list — только client-side данные.</li>
-    <li><strong>noLogUrls exclusions.</strong> Checkout/order-пути могут не попадать в events.</li>
-    <li><strong>Только _id index на events и guestStateHistory.</strong> Все date-фильтры — через ObjectId boundary.</li>
-    <li><strong>Sparse client enrichment.</strong> Не у всех guest_id есть запись в clients. guestStateHistory.guest_id хранится как string, events.guest_id — ObjectId.</li>
-    <li><strong>Единственный тип события в MongoDB.</strong> Все 5M событий типа 'watcher', нет границ сессий.</li>
-    <li><strong>Инцидент Apr 1 CIS postback</strong> исключён из Problem B окна (Mar 26 как граница).</li>
-  </ul>
-</div>
-
-<hr class="sep">
-
-<!-- =========================================================
-     PROBLEM A
-     ========================================================= -->
-<h2 style="font-size:22px;font-weight:700;margin-bottom:28px;color:var(--accent)">
-  Problem A — Missing Affiliate Click
-</h2>
-
-<!-- FUNNEL -->
-<div class="section" id="a-funnel">
-  <div class="section-title"><span class="icon">🔽</span> A1. Funnel Decomposition</div>
-  <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;">
-    Окно: 2026-03-06 – 2026-04-02 UTC · Источник: MongoDB events + Mixpanel Affiliate Click
-  </p>
-
-  <div class="funnel">
-    <div class="funnel-step">
-      <div class="funnel-bar" style="width:100%;background:var(--accent)"></div>
-      <div class="funnel-num" style="color:var(--accent)">63 916</div>
-      <div class="funnel-label"><strong>Raw AliExpress activity</strong><br><span style="font-size:11px;color:var(--text-muted)">Все пользователи с событиями в MongoDB в окне</span></div>
-      <div class="funnel-pct" style="color:var(--text-muted)">—</div>
-    </div>
-    <div class="funnel-arrow">▼ −8 154 ineligible (12.8%)</div>
-    <div class="funnel-step">
-      <div class="funnel-bar" style="width:87%;background:var(--accent)"></div>
-      <div class="funnel-num" style="color:var(--accent)">55 762</div>
-      <div class="funnel-label"><strong>Eligible</strong> (product page или homepage)<br><span style="font-size:11px;color:var(--text-muted)">Product only: 36 247 · Homepage only: 2 326 · Both: 17 189</span></div>
-      <div class="funnel-pct" style="color:var(--accent)">87.2%</div>
-    </div>
-    <div class="funnel-arrow">▼ −110 без конфига</div>
-    <div class="funnel-step good-step">
-      <div class="funnel-bar" style="width:87%;background:var(--green)"></div>
-      <div class="funnel-num" style="color:var(--green)">55 652</div>
-      <div class="funnel-label"><strong>Has usable config</strong> (value=True)<br><span style="font-size:11px;color:var(--text-muted)">Конфиг НЕ является узким местом</span></div>
-      <div class="funnel-pct" style="color:var(--green)">99.8%</div>
-    </div>
-    <div class="funnel-arrow">▼ −14 215 не дошли до хаба <span style="color:var(--red)">(GAP: 25.5%)</span></div>
-    <div class="funnel-step gap-step">
-      <div class="funnel-bar" style="width:65%;background:var(--yellow)"></div>
-      <div class="funnel-num" style="color:var(--yellow)">41 547</div>
-      <div class="funnel-label"><strong>Reached hub</strong> (Affiliate Click, Mixpanel)<br><span style="font-size:11px;color:var(--text-muted)">74.5% от eligible</span></div>
-      <div class="funnel-pct" style="color:var(--yellow)">74.5%</div>
-    </div>
-    <div class="funnel-arrow">▼ −10 805 hub без нашего sk (A6: 20.1%)</div>
-    <div class="funnel-step gap-step">
-      <div class="funnel-bar" style="width:48%;background:var(--orange)"></div>
-      <div class="funnel-num" style="color:var(--orange)">30 742</div>
-      <div class="funnel-label"><strong>Returned with our sk</strong><br><span style="font-size:11px;color:var(--text-muted)">events.payload.querySk ∈ OUR_SKS</span></div>
-      <div class="funnel-pct" style="color:var(--orange)">55.1%</div>
-    </div>
-  </div>
-
-  <div style="margin-top:20px;" class="card-grid cols-2">
-    <div class="card">
-      <div class="card-label">A5 — Silent redirect</div>
-      <div style="font-size:22px;font-weight:700;color:var(--teal)">402</div>
-      <div class="card-sub">Наш sk в URL, НО нет Affiliate Click в Mixpanel (0.7% eligible)</div>
-    </div>
-    <div class="card danger">
-      <div class="card-label">A6 — Hub reached, no sk return</div>
-      <div style="font-size:22px;font-weight:700;color:var(--red)">11 207</div>
-      <div class="card-sub">Дошли до хаба, но наш sk НЕ вернулся (20.1% eligible)</div>
-    </div>
-  </div>
-
-  <div style="margin-top:16px;" class="alert alert-orange">
-    <strong>Gap breakdown: проблема не в конфиге</strong>
-    99.5% gap-пользователей имели usable config — проблема в flow/execution.
-    14 142 пользователя с хорошим конфигом так и не дошли до хаба.
-  </div>
-</div>
-
-<!-- LINEAGE -->
-<div class="section" id="a-lineage">
-  <div class="section-title"><span class="icon">🔀</span> A2. Browser Lineage</div>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr><th>Lineage</th><th class="num">Eligible</th><th class="num">%</th><th class="num">Reached hub</th><th class="num">% reach</th><th class="num">Our sk return</th><th class="num">% return</th><th class="num">A5 silent</th><th class="num">A6 hub-no-ret</th></tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td><span class="badge badge-purple">DOGI</span> Chrome / Yandex / Opera</td>
-          <td class="num">42 905</td><td class="num neutral">76.9%</td>
-          <td class="num">30 653</td><td class="num warn">71.4%</td>
-          <td class="num">22 372</td><td class="num warn">52.1%</td>
-          <td class="num">327</td><td class="num bad">8 608</td>
-        </tr>
-        <tr>
-          <td><span class="badge badge-blue">Auto-redirect</span> Firefox / Edge</td>
-          <td class="num">12 857</td><td class="num neutral">23.1%</td>
-          <td class="num">10 894</td><td class="num good">84.7%</td>
-          <td class="num">8 370</td><td class="num good">65.1%</td>
-          <td class="num">75</td><td class="num warn">2 599</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-  <div class="alert alert-orange" style="margin-top:16px;">
-    <strong>DOGI отстаёт на 13.3 pp в hub reach</strong>
-    Авто-редирект не требует взаимодействия пользователя. DOGI зависит от клика по монетке / thumbnail — многие пользователи его пропускают.
-  </div>
-</div>
-
-<!-- BROWSER -->
-<div class="section" id="a-browser">
-  <div class="section-title"><span class="icon">🌐</span> A3–A4. По браузерам</div>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr><th>Браузер</th><th>Lineage</th><th class="num">Eligible</th><th class="num">Reached hub</th><th class="num">% reach</th><th class="num">Our sk return</th><th class="num">% return</th></tr>
-      </thead>
-      <tbody>
-        <tr><td><strong>Firefox</strong></td><td><span class="badge badge-blue">auto</span></td><td class="num">8 474</td><td class="num">7 599</td><td class="num good">89.7%</td><td class="num">5 437</td><td class="num good">64.2%</td></tr>
-        <tr><td>Chrome</td><td><span class="badge badge-purple">dogi</span></td><td class="num">34 094</td><td class="num">25 298</td><td class="num warn">74.2%</td><td class="num">20 765</td><td class="num">60.9%</td></tr>
-        <tr><td>Edge</td><td><span class="badge badge-blue">auto</span></td><td class="num">4 383</td><td class="num">3 295</td><td class="num warn">75.2%</td><td class="num">2 933</td><td class="num">66.9%</td></tr>
-        <tr><td>Opera</td><td><span class="badge badge-purple">dogi</span></td><td class="num">1 955</td><td class="num">1 432</td><td class="num warn">73.2%</td><td class="num">1 041</td><td class="num">53.2%</td></tr>
-        <tr style="background:rgba(248,113,113,.06)">
-          <td><strong>Yandex</strong></td><td><span class="badge badge-purple">dogi</span></td><td class="num">5 156</td><td class="num">3 355</td><td class="num warn">65.1%</td><td class="num bad">143</td><td class="num bad">2.8%</td>
-        </tr>
-        <tr><td>Unknown</td><td>—</td><td class="num">1 663</td><td class="num">540</td><td class="num bad">32.5%</td><td class="num">399</td><td class="num neutral">24.0%</td></tr>
-      </tbody>
-    </table>
-  </div>
-  <div class="alert alert-red" style="margin-top:16px;">
-    <strong>Yandex Browser — критическая аномалия</strong>
-    65.1% reach hub, но только 2.8% возвращаются с нашим sk (143 из 5 156).
-    Yandex = преимущественно российские пользователи. Это зеркало Russia-проблемы из A6.
-    Firefox (89.7%) значительно лучше Edge (75.2%) в авто-редирект ветке.
-  </div>
-</div>
-
-<!-- HUB -->
-<div class="section" id="a-hub">
-  <div class="section-title"><span class="icon">🏛️</span> A5. Производительность хабов</div>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr><th>Hub domain</th><th class="num">Users (usable cfg)</th><th class="num">Reached hub</th><th class="num">% reach</th><th class="num">Our sk return</th><th class="num">% return</th><th class="num">sk/reachers</th></tr>
-      </thead>
-      <tbody>
-        <tr style="background:rgba(52,211,153,.04)">
-          <td><strong>discount-tops.net</strong></td><td class="num">13 952</td><td class="num">10 540</td><td class="num">75.5%</td><td class="num">9 662</td><td class="num good">69.3%</td><td class="num good">91.7%</td>
-        </tr>
-        <tr style="background:rgba(52,211,153,.04)">
-          <td><strong>stock-tops.com</strong></td><td class="num">13 772</td><td class="num">10 584</td><td class="num good">76.9%</td><td class="num">9 579</td><td class="num good">69.6%</td><td class="num good">90.5%</td>
-        </tr>
-        <tr style="background:rgba(248,113,113,.04)">
-          <td><strong>tools-tops.com</strong></td><td class="num">14 029</td><td class="num">10 277</td><td class="num">73.3%</td><td class="num">5 848</td><td class="num bad">41.7%</td><td class="num bad">56.9%</td>
-        </tr>
-        <tr style="background:rgba(248,113,113,.04)">
-          <td><strong>market-tops.com</strong></td><td class="num">13 899</td><td class="num">10 109</td><td class="num warn">72.7%</td><td class="num">5 631</td><td class="num bad">40.5%</td><td class="num bad">55.7%</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-  <div class="alert alert-red" style="margin-top:16px;">
-    <strong>Два хаба из четырёх теряют ~35% after-hub конверсии</strong>
-    tools-tops.com и market-tops.com: только 55–57% reachers возвращаются с нашим sk.
-    discount-tops.net и stock-tops.com: 90–92%. Разрыв 35 pp — вероятно, эти хабы обслуживают
-    CIS-трафик, для которого AliExpress не передаёт affiliate-параметры.
-  </div>
-</div>
-
-<!-- GEO -->
-<div class="section" id="a-geo">
-  <div class="section-title"><span class="icon">🌍</span> A6. CIS vs Global · Страны</div>
-
-  <div class="card-grid cols-2" style="margin-bottom:20px">
-    <div class="card danger">
-      <div class="card-label">CIS</div>
-      <div class="card-value red">14.8%</div>
-      <div class="card-sub">Our sk return · 17 203 eligible · 11 830 reach hub</div>
-    </div>
-    <div class="card success">
-      <div class="card-label">Global</div>
-      <div class="card-value green">73.1%</div>
-      <div class="card-sub">Our sk return · 38 559 eligible · 29 717 reach hub</div>
-    </div>
-  </div>
-
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr><th>Страна</th><th class="num">Eligible</th><th class="num">Reached hub</th><th class="num">% reach</th><th class="num">Our sk return</th><th class="num">% sk return</th></tr>
-      </thead>
-      <tbody>
-        <tr style="background:rgba(248,113,113,.08)">
-          <td>🇷🇺 <strong>RU</strong></td><td class="num">11 669</td><td class="num">7 919</td><td class="num warn">67.9%</td><td class="num bad">142</td><td class="num bad">1.2%</td>
-        </tr>
-        <tr style="background:rgba(248,113,113,.04)">
-          <td>🇧🇾 BY</td><td class="num">1 095</td><td class="num">712</td><td class="num warn">65.0%</td><td class="num bad">78</td><td class="num bad">7.1%</td>
-        </tr>
-        <tr><td>🇺🇦 UA</td><td class="num">3 175</td><td class="num">2 347</td><td class="num">73.9%</td><td class="num">2 261</td><td class="num good">71.2%</td></tr>
-        <tr><td>🇪🇸 ES</td><td class="num">3 154</td><td class="num">2 477</td><td class="num">78.5%</td><td class="num">2 392</td><td class="num good">75.8%</td></tr>
-        <tr><td>🇧🇷 BR</td><td class="num">2 481</td><td class="num">1 835</td><td class="num">74.0%</td><td class="num">1 821</td><td class="num good">73.4%</td></tr>
-        <tr><td>🇨🇱 CL</td><td class="num">2 227</td><td class="num">1 763</td><td class="num">79.2%</td><td class="num">1 734</td><td class="num good">77.9%</td></tr>
-        <tr><td>🇲🇽 MX</td><td class="num">2 103</td><td class="num">1 640</td><td class="num">78.0%</td><td class="num">1 625</td><td class="num good">77.3%</td></tr>
-        <tr><td>🇵🇱 PL</td><td class="num">1 890</td><td class="num">1 519</td><td class="num">80.4%</td><td class="num">1 459</td><td class="num good">77.2%</td></tr>
-        <tr><td>🇫🇷 FR</td><td class="num">1 756</td><td class="num">1 418</td><td class="num">80.8%</td><td class="num">1 352</td><td class="num good">77.0%</td></tr>
-        <tr><td>🇩🇪 DE</td><td class="num">1 335</td><td class="num">1 092</td><td class="num">81.8%</td><td class="num">913</td><td class="num">68.4%</td></tr>
-        <tr><td>🇺🇸 US</td><td class="num">1 056</td><td class="num">769</td><td class="num">72.8%</td><td class="num">661</td><td class="num">62.6%</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <div class="alert alert-red" style="margin-top:16px;">
-    <strong>Россия — структурная проблема redirect</strong>
-    7 777 российских пользователей достигли хаба, но только 142 вернулись с нашим sk.
-    Наиболее вероятная причина: AliExpress не передаёт стандартные affiliate-параметры
-    для российского трафика (aliexpress.ru или геоблок на affiliate redirect после 2022).
-    Украина (71.2%) ведёт себя как глобальный трафик — исключает общую CIS-проблему,
-    специфична для RU/BY.
-  </div>
-</div>
-
-<!-- VERSION -->
-<div class="section" id="a-version">
-  <div class="section-title"><span class="icon">🔧</span> A7. Версии расширения</div>
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>Версия</th><th class="num">Eligible</th><th class="num">Reached hub</th><th class="num">% reach</th></tr></thead>
-      <tbody>
-        <tr><td>3.1.0</td><td class="num">8 918</td><td class="num">7 077</td><td class="num good">79.4%</td></tr>
-        <tr><td>3.0.2</td><td class="num">1 100</td><td class="num">897</td><td class="num good">81.5%</td></tr>
-        <tr><td>3.0.8</td><td class="num">3 745</td><td class="num">2 902</td><td class="num">77.5%</td></tr>
-        <tr><td>3.0.10</td><td class="num">1 866</td><td class="num">1 445</td><td class="num">77.4%</td></tr>
-        <tr><td>3.1.1</td><td class="num">1 860</td><td class="num">1 395</td><td class="num">75.0%</td></tr>
-        <tr><td>3.0.5</td><td class="num">2 484</td><td class="num">1 808</td><td class="num warn">72.8%</td></tr>
-        <tr><td>2.27.9</td><td class="num">964</td><td class="num">699</td><td class="num warn">72.5%</td></tr>
-      </tbody>
-    </table>
-  </div>
-  <div class="alert alert-blue" style="margin-top:12px;">
-    Разброс 72.5–81.5% — умеренный. Ни одна версия не проваливается критически.
-    Версионный фактор не является основной причиной gap.
-  </div>
-</div>
-
-<!-- PAGE TYPE -->
-<div class="section" id="a-pagetype">
-  <div class="section-title"><span class="icon">📄</span> A8. Тип страницы</div>
-  <div class="card-grid cols-3">
-    <div class="card success">
-      <div class="card-label">Product + Homepage</div>
-      <div class="card-value green">86.9%</div>
-      <div class="card-sub">hub reach · 17 189 users</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Product only</div>
-      <div class="card-value yellow">73.0%</div>
-      <div class="card-sub">hub reach · 36 247 users</div>
-    </div>
-    <div class="card danger">
-      <div class="card-label">Homepage only</div>
-      <div class="card-value red">6.6%</div>
-      <div class="card-sub">hub reach · 2 326 users · 2 173 пропущено</div>
-    </div>
-  </div>
-  <div class="alert alert-red" style="margin-top:16px;">
-    <strong>Homepage-only — фактически нулевая активация</strong>
-    Механика редиректа с главной страницы практически не работает.
-    153 активации из 2 326 eligible homepage-only пользователей.
-  </div>
-</div>
-
-<!-- ROOT CAUSES A -->
-<div class="section" id="a-causes">
-  <div class="section-title"><span class="icon">🎯</span> Ранжированные причины — Problem A</div>
-
-  <div class="cause-card">
-    <div class="cause-num" style="background:rgba(248,113,113,.2);color:var(--red)">1</div>
-    <div class="cause-body">
-      <div class="cause-title">Hub→AliExpress redirect broken для России / CIS</div>
-      <div class="cause-detail">7 919 RU-пользователей дошли до хаба, вернулись с нашим sk — 142 (1.8%). BY: 11%. Глобал: 94.9%. 11 207 пользователей в A6-бакете (20.1% eligible), ~75% из которых — RU/CIS/Yandex.</div>
-      <div class="cause-meta">
-        <span class="badge badge-red">CRITICAL</span>
-        <span class="tag">~10 000 users/28d</span>
-        <span class="tag">HIGH confidence</span>
-        <span class="tag">tools/market-tops 55-57% vs discount/stock 91%</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="cause-card">
-    <div class="cause-num" style="background:rgba(251,146,60,.2);color:var(--orange)">2</div>
-    <div class="cause-body">
-      <div class="cause-title">DOGI flow: 28.6% пользователей не доходят до хаба</div>
-      <div class="cause-detail">Auto-redirect: 84.7% hub reach. DOGI: 71.4% (−13.3 pp). 12 252 DOGI-пользователя не дошли до хаба — вероятно, не взаимодействовали с монеткой.</div>
-      <div class="cause-meta">
-        <span class="badge badge-orange">HIGH</span>
-        <span class="tag">12 252 missed/28d</span>
-        <span class="tag">HIGH confidence</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="cause-card">
-    <div class="cause-num" style="background:rgba(251,146,60,.2);color:var(--orange)">3</div>
-    <div class="cause-body">
-      <div class="cause-title">Homepage visits: 6.6% hub reach — механика не работает</div>
-      <div class="cause-detail">2 173 пропущенные активации с homepage-only пользователей. Redirect-правило, скорее всего, не срабатывает на пустом pathname или homepage исключён из eligible-логики.</div>
-      <div class="cause-meta">
-        <span class="badge badge-orange">MEDIUM</span>
-        <span class="tag">2 173 missed/28d</span>
-        <span class="tag">HIGH confidence</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="cause-card">
-    <div class="cause-num" style="background:rgba(251,146,60,.15);color:var(--yellow)">4</div>
-    <div class="cause-body">
-      <div class="cause-title">tools-tops.com + market-tops.com: 35 pp разрыв после хаба</div>
-      <div class="cause-detail">56–57% our-sk-return среди тех, кто дошёл до этих хабов vs 90–92% для discount/stock. ~4 000 дополнительных потерь за 28 дней. Вероятно, эти хабы обслуживают CIS-трафик с другой redirect-логикой.</div>
-      <div class="cause-meta">
-        <span class="badge badge-orange">MEDIUM</span>
-        <span class="tag">~4 000 extra lost/28d</span>
-        <span class="tag">HIGH confidence</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="cause-card">
-    <div class="cause-num" style="background:rgba(108,139,239,.15);color:var(--accent)">5</div>
-    <div class="cause-body">
-      <div class="cause-title">Edge auto-redirect: 75.2% vs Firefox 89.7%</div>
-      <div class="cause-detail">14.5 pp разрыв внутри auto-redirect ветки. Edge реализует webNavigation.onBeforeNavigate иначе или 30-мин cooldown-проверка ведёт себя по-другому.</div>
-      <div class="cause-meta">
-        <span class="badge badge-blue">LOW overall</span>
-        <span class="tag">~600 extra missed/28d</span>
-        <span class="tag">HIGH confidence</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="cause-card">
-    <div class="cause-num" style="background:rgba(139,143,168,.1);color:var(--text-muted)">6</div>
-    <div class="cause-body">
-      <div class="cause-title">A5 Silent redirect — минимальный масштаб</div>
-      <div class="cause-detail">402 пользователя: наш sk вернулся, но Affiliate Click не зафиксирован в Mixpanel. Tracking работает надёжно — это не значимая причина.</div>
-      <div class="cause-meta">
-        <span class="badge badge-gray">NEGLIGIBLE</span>
-        <span class="tag">402 users</span>
-      </div>
-    </div>
-  </div>
-</div>
-
-<hr class="sep">
-
-<!-- =========================================================
-     PROBLEM B
-     ========================================================= -->
-<h2 style="font-size:22px;font-weight:700;margin-bottom:28px;color:var(--accent2)">
-  Problem B — Purchase Completed без Purchase
-</h2>
-
-<!-- GAP -->
-<div class="section" id="b-gap">
-  <div class="section-title"><span class="icon">📉</span> B1. Gap Analysis</div>
-  <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;">
-    Окно: 2026-02-27 – 2026-03-26 UTC · Mature cohort (28 дней до incident window)
-  </p>
-
-  <div class="card-grid cols-3" style="margin-bottom:20px">
-    <div class="card">
-      <div class="card-label">Purchase Completed</div>
-      <div class="card-value blue">523 143</div>
-      <div class="card-sub">Все завершённые заказы, зафиксированные расширением</div>
-    </div>
-    <div class="card">
-      <div class="card-label">Purchase (postbacks)</div>
-      <div class="card-value blue">490 108</div>
-      <div class="card-sub">Постбэки, полученные AliHelper backend</div>
-    </div>
-    <div class="card warning">
-      <div class="card-label">Net Raw Gap</div>
-      <div class="card-value orange">33 035</div>
-      <div class="card-sub">6.3% от PC · истинный метрика потерь</div>
-    </div>
-  </div>
-
-  <div class="alert alert-orange">
-    <strong>Методологическое предупреждение: per-event matching не работает для этих данных</strong>
-    Постбэки приходят с задержкой часы–дни. При ±10 мин совпадает только 50.6% событий.
-    Истинный gap = net raw gap (33 035), а не 258K «не совпавших» по timing.
-    UNKNOWN-бакет (32 656) ≈ net gap — это отложенные постбэки, а не потеря атрибуции.
-  </div>
-</div>
-
-<!-- MATCHING -->
-<div class="section" id="b-matching">
-  <div class="section-title"><span class="icon">🔗</span> B2. Sensitivity анализ matching</div>
-
-  <div class="subsection">
-    <div class="bar-row">
-      <div class="bar-label">±5 min</div>
-      <div class="bar-track"><div class="bar-fill" style="width:40.4%;background:var(--red)"></div></div>
-      <div class="bar-val" style="color:var(--red)">40.4%</div>
-    </div>
-    <div class="bar-row">
-      <div class="bar-label">±10 min (default)</div>
-      <div class="bar-track"><div class="bar-fill" style="width:50.6%;background:var(--orange)"></div></div>
-      <div class="bar-val" style="color:var(--orange)">50.6%</div>
-    </div>
-    <div class="bar-row">
-      <div class="bar-label">±20 min</div>
-      <div class="bar-track"><div class="bar-fill" style="width:55%;background:var(--yellow)"></div></div>
-      <div class="bar-val" style="color:var(--yellow)">55.0%</div>
-    </div>
-    <div class="bar-row">
-      <div class="bar-label">±30 min</div>
-      <div class="bar-track"><div class="bar-fill" style="width:57.1%;background:var(--yellow)"></div></div>
-      <div class="bar-val" style="color:var(--yellow)">57.1%</div>
-    </div>
-    <div class="bar-row">
-      <div class="bar-label">±60 min</div>
-      <div class="bar-track"><div class="bar-fill" style="width:60.2%;background:var(--accent)"></div></div>
-      <div class="bar-val" style="color:var(--accent)">60.2%</div>
-    </div>
-  </div>
-  <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">
-    Кривая растёт медленно — постбэки приходят часами/днями позже PC события.
-    Ожидаемая «настоящая» match rate ≈ 93.7% (= 100% − 6.3% gap), но только при окне 24–72ч.
-  </div>
-</div>
-
-<!-- REASONS -->
-<div class="section" id="b-reasons">
-  <div class="section-title"><span class="icon">🏷️</span> B3. Reason Codes (timing-unmatched 258K)</div>
-
-  <div class="alert alert-orange" style="margin-bottom:16px;">
-    <strong>Важно:</strong> 258K «unmatched» = 225K delayed postbacks + 33K true gap.
-    Распределение reason codes отражает ВСЮ 258K выборку, не только истинный gap.
-    UNKNOWN ≈ 33K = истинный gap.
-  </div>
-
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>Reason code</th><th class="num">Events</th><th class="num">% unmatched</th><th class="num">% all PC</th><th>Интерпретация</th></tr></thead>
-      <tbody>
-        <tr>
-          <td><span class="badge badge-red">NO_OUR_SK_IN_72H</span></td>
-          <td class="num">166 009</td><td class="num bad">64.3%</td><td class="num">31.7%</td>
-          <td style="font-size:12px;color:var(--text-muted)">Покупка без нашей активации — не потеря, а отсутствие охвата</td>
-        </tr>
-        <tr>
-          <td><span class="badge badge-orange">AF_AFTER_OUR_SK</span></td>
-          <td class="num">59 384</td><td class="num warn">23.0%</td><td class="num">11.4%</td>
-          <td style="font-size:12px;color:var(--text-muted)">Наш sk был, потом появился af (третья сторона или прomo)</td>
-        </tr>
-        <tr style="background:rgba(108,139,239,.06)">
-          <td><span class="badge badge-blue">UNKNOWN</span></td>
-          <td class="num">32 656</td><td class="num">12.6%</td><td class="num">6.2%</td>
-          <td style="font-size:12px;color:var(--accent)"><strong>≈ net raw gap · наш sk есть, нет overwrite → delayed postback</strong></td>
-        </tr>
-        <tr>
-          <td><span class="badge badge-gray">CASHBACK_TRACE</span></td>
-          <td class="num">149</td><td class="num neutral">0.1%</td><td class="num neutral">0.0%</td>
-          <td style="font-size:12px;color:var(--text-muted)">Незначительно</td>
-        </tr>
-        <tr>
-          <td><span class="badge badge-gray">FOREIGN_SK_AFTER_OUR_SK</span></td>
-          <td class="num">94</td><td class="num neutral">0.04%</td><td class="num neutral">0.0%</td>
-          <td style="font-size:12px;color:var(--text-muted)">Незначительно</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-</div>
-
-<!-- ATTRIBUTION -->
-<div class="section" id="b-attribution">
-  <div class="section-title"><span class="icon">🔍</span> B4. Attribution state (timing-unmatched 258K)</div>
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>Атрибут</th><th class="num">Событий</th><th class="num">% unmatched</th></tr></thead>
-      <tbody>
-        <tr><td>Has our last_sk (OUR_SKS)</td><td class="num">92 277</td><td class="num good">35.7%</td></tr>
-        <tr style="background:rgba(248,113,113,.04)"><td><strong>Has foreign last_sk</strong></td><td class="num bad">148 888</td><td class="num bad">57.6%</td></tr>
-        <tr><td>Has any our sk (last or current)</td><td class="num">92 283</td><td class="num">35.7%</td></tr>
-        <tr><td>Has foreign sk (current)</td><td class="num">2 288</td><td class="num neutral">0.9%</td></tr>
-        <tr><td>Has af (current)</td><td class="num">300</td><td class="num neutral">0.1%</td></tr>
-        <tr style="background:rgba(248,113,113,.04)"><td><strong>Has last_af</strong></td><td class="num bad">199 820</td><td class="num bad">77.4%</td></tr>
-        <tr><td>Has cashback trace</td><td class="num">3 791</td><td class="num neutral">1.5%</td></tr>
-      </tbody>
-    </table>
-  </div>
-  <div class="alert alert-orange" style="margin-top:16px;">
-    <strong>77.4% timing-unmatched имеют last_af</strong> — широкое присутствие third-party affiliate экосистемы.
-    57.6% имеют foreign last_sk. Это означает, что большинство «не совпавших» покупок происходят
-    в среде с активными конкурирующими affiliate-ссылками.
-  </div>
-
-  <div style="margin-top:20px">
-    <div class="subsection-title">B4b. CIS vs Global (timing-unmatched)</div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Регион</th><th class="num">Unmatched</th><th class="num">%</th><th class="num">NO_OUR_SK</th><th class="num">AF_AFTER</th><th class="num">UNKNOWN</th></tr></thead>
-        <tbody>
-          <tr style="background:rgba(248,113,113,.04)">
-            <td><strong>CIS</strong></td><td class="num">25 825</td><td class="num">10.0%</td>
-            <td class="num bad">85.0%</td><td class="num">12.6%</td><td class="num neutral">2.2%</td>
-          </tr>
-          <tr>
-            <td>Global</td><td class="num">232 467</td><td class="num">90.0%</td>
-            <td class="num warn">62.0%</td><td class="num">24.1%</td><td class="num">13.8%</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <div style="font-size:12px;color:var(--text-muted);margin-top:8px;">
-      CIS: 85% NO_OUR_SK — прямое следствие Problem A. Российские пользователи не получают наш sk,
-      поэтому у них нет атрибуции перед покупкой.
-    </div>
-  </div>
-</div>
-
-<!-- GEO B -->
-<div class="section" id="b-geo">
-  <div class="section-title"><span class="icon">🗺️</span> B5. Loss rate по странам (timing-based)</div>
-  <div class="alert alert-orange" style="margin-bottom:12px;">
-    Loss% ниже рассчитан как unmatched/total PC по 10-мин окну — содержит delayed postbacks.
-    Используйте как сравнительный сигнал, а не абсолютный.
-  </div>
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>Страна</th><th class="num">Total PC</th><th class="num">Unmatched</th><th class="num">Loss %</th></tr></thead>
-      <tbody>
-        <tr><td>🇹🇷 TR (Turkey)</td><td class="num">132</td><td class="num bad">126</td><td class="num bad">95.5%</td></tr>
-        <tr><td>🇵🇭 PH (Philippines)</td><td class="num">196</td><td class="num bad">186</td><td class="num bad">94.9%</td></tr>
-        <tr><td>🇮🇪 IE (Ireland)</td><td class="num">837</td><td class="num bad">665</td><td class="num bad">79.5%</td></tr>
-        <tr><td>🇦🇪 AE (UAE)</td><td class="num">716</td><td class="num bad">543</td><td class="num bad">75.8%</td></tr>
-        <tr><td>🇧🇷 BR (Brazil)</td><td class="num bad">12 233</td><td class="num bad">8 467</td><td class="num bad">69.2%</td></tr>
-        <tr><td>🇦🇷 AR (Argentina)</td><td class="num">2 371</td><td class="num warn">1 599</td><td class="num warn">67.4%</td></tr>
-        <tr><td>🇬🇪 GE (Georgia)</td><td class="num">686</td><td class="num warn">476</td><td class="num warn">69.4%</td></tr>
-      </tbody>
-    </table>
-  </div>
-</div>
-
-<!-- ROOT CAUSES B -->
-<div class="section" id="b-causes">
-  <div class="section-title"><span class="icon">🎯</span> Ранжированные причины — Problem B</div>
-
-  <div class="cause-card">
-    <div class="cause-num" style="background:rgba(108,139,239,.2);color:var(--accent)">1</div>
-    <div class="cause-body">
-      <div class="cause-title">Delayed postback — основная причина видимого gap</div>
-      <div class="cause-detail">Net gap 33K ≈ UNKNOWN bucket 32.6K (наш sk, нет overwrite). Постбэки приходят через часы–дни. При ±60 мин match rate только 60%. Истинный «потерянный» постбэк — малая доля от 33K.</div>
-      <div class="cause-meta">
-        <span class="badge badge-blue">CRITICAL для интерпретации</span>
-        <span class="tag">33 035 net gap</span>
-        <span class="tag">HIGH confidence</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="cause-card">
-    <div class="cause-num" style="background:rgba(248,113,113,.2);color:var(--red)">2</div>
-    <div class="cause-body">
-      <div class="cause-title">NO_OUR_SK — покупки без нашей активации (64.3% unmatched)</div>
-      <div class="cause-detail">166K timing-unmatched событий не имели нашего sk перед покупкой. Не «потеря» комиссии — комиссия никогда не была доступна. Но это потенциал роста: если DOGI/homepage активировались бы лучше, часть этих покупок получила бы атрибуцию.</div>
-      <div class="cause-meta">
-        <span class="badge badge-red">HIGH VOLUME</span>
-        <span class="tag">31.7% всех PC</span>
-        <span class="tag">HIGH confidence</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="cause-card">
-    <div class="cause-num" style="background:rgba(251,146,60,.2);color:var(--orange)">3</div>
-    <div class="cause-body">
-      <div class="cause-title">CIS attribution failure — прямое следствие Problem A</div>
-      <div class="cause-detail">CIS: 85% NO_OUR_SK в unmatched. У российских пользователей нет нашего sk перед покупкой, потому что хаб не возвращает его (Problem A). Исправление Problem A автоматически исправит CIS-потери в B.</div>
-      <div class="cause-meta">
-        <span class="badge badge-orange">LINKED TO PROBLEM A</span>
-        <span class="tag">25 825 CIS unmatched</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="cause-card">
-    <div class="cause-num" style="background:rgba(167,139,250,.2);color:var(--accent2)">4</div>
-    <div class="cause-body">
-      <div class="cause-title">AF_AFTER_OUR_SK — third-party overwrite (23% unmatched с нашим sk)</div>
-      <div class="cause-detail">59K timing-unmatched: наш sk был, потом появился af-параметр. Не все это overwrite (af может быть от AliExpress promo), но часть — реальная конкуренция с third-party affiliate.</div>
-      <div class="cause-meta">
-        <span class="badge badge-purple">MEDIUM</span>
-        <span class="tag">59 384 events</span>
-        <span class="tag">MEDIUM confidence</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="cause-card">
-    <div class="cause-num" style="background:rgba(139,143,168,.1);color:var(--text-muted)">5</div>
-    <div class="cause-body">
-      <div class="cause-title">Country-level partner restrictions</div>
-      <div class="cause-detail">Turkey (95.5%), Philippines (94.9%), UAE (75.8%): вероятно, affiliate-программа имеет ограничения по этим рынкам или расширение не активируется должным образом.</div>
-      <div class="cause-meta">
-        <span class="badge badge-gray">LOW VOLUME</span>
-        <span class="tag">MEDIUM confidence</span>
-      </div>
-    </div>
-  </div>
-</div>
-
-<hr class="sep">
-
-<!-- RECOMMENDATIONS -->
-<div class="section" id="recommendations">
-  <div class="section-title"><span class="icon">🛠️</span> Рекомендации</div>
-
-  <div class="rec-group">
-    <div class="rec-group-title">⚡ Quick Wins</div>
-    <div class="rec-item">
-      <div class="rec-icon">🇷🇺</div>
-      <div class="rec-text">
-        <strong>Диагностика Russia redirect chain</strong>
-        Сравнить структуру aff_url и HTTP-ответы AliExpress для RU vs UA пользователей после Affiliate Click.
-        Проверить: перенаправляет ли AliExpress RU-трафик на aliexpress.ru (где affiliate params могут стриппаться).
-        Добавить тест redirect flow с геолокацией RU в QA.
-      </div>
-    </div>
-    <div class="rec-item">
-      <div class="rec-icon">🏛️</div>
-      <div class="rec-text">
-        <strong>Исправить tools-tops.com / market-tops.com</strong>
-        Сравнить конфигурацию redirect chain с discount-tops.net и stock-tops.com (90–92% sk return).
-        Разрыв 35 pp при одинаковом hub reach — проблема в логике redirect, не в трафике.
-      </div>
-    </div>
-    <div class="rec-item">
-      <div class="rec-icon">🏠</div>
-      <div class="rec-text">
-        <strong>Исправить homepage activation</strong>
-        6.6% hub reach для homepage-only пользователей. Проверить eligible-условия в auto-redirect: требуется ли productId или допускается пустой pathname. 2 173 пропущенные активации за 28 дней.
-      </div>
-    </div>
-    <div class="rec-item">
-      <div class="rec-icon">📅</div>
-      <div class="rec-text">
-        <strong>Расширить окно Problem B до 7+ дней</strong>
-        Текущая 10-мин matching не подходит для данных с postback delay часы–дни.
-        Перезапустить анализ B с 24ч и 72ч окнами для точной оценки true gap vs delayed postback.
-      </div>
-    </div>
-  </div>
-
-  <div class="rec-group">
-    <div class="rec-group-title">🚀 Medium-term Product Changes</div>
-    <div class="rec-item">
-      <div class="rec-icon">🪙</div>
-      <div class="rec-text">
-        <strong>Улучшить DOGI flow activation</strong>
-        28.6% DOGI-пользователей не доходят до хаба. A/B тест: более заметное DOGI coin, авто-триггер после задержки на product page, ненавязчивый toast. Цель: приблизить DOGI к auto-redirect (84.7%).
-      </div>
-    </div>
-    <div class="rec-item">
-      <div class="rec-icon">🌐</div>
-      <div class="rec-text">
-        <strong>Edge auto-redirect debugging</strong>
-        Firefox 89.7% vs Edge 75.2% — 14.5 pp разрыв. Проверить Edge-специфичное поведение webNavigation.onBeforeNavigate и логику 30-мин cooldown.
-      </div>
-    </div>
-    <div class="rec-item">
-      <div class="rec-icon">🇷🇺</div>
-      <div class="rec-text">
-        <strong>Альтернативный flow для России</strong>
-        Если AliExpress структурно блокирует affiliate params для RU, рассмотреть:
-        (а) RU-специфичный хаб с другим механизмом redirect;
-        (б) депрекация affiliate activation для RU и переключение на другую монетизацию.
-      </div>
-    </div>
-    <div class="rec-item">
-      <div class="rec-icon">🇧🇷</div>
-      <div class="rec-text">
-        <strong>Расследовать Brazil / LATAM loss rate</strong>
-        BR: 69.2% timing-unmatched при 12K PC событий — значимый объём. Проверить affiliate-правила AliExpress для LATAM и наличие af-перезаписи.
-      </div>
-    </div>
-  </div>
-
-  <div class="rec-group">
-    <div class="rec-group-title">📡 Tracking / Instrumentation</div>
-    <div class="rec-item">
-      <div class="rec-icon">📊</div>
-      <div class="rec-text">
-        <strong>Backend-лог исхода redirect</strong>
-        Добавить server-side событие: хаб принял запрос + сформировал redirect URL.
-        Сейчас различить «хаб достигнут» (Affiliate Click) от «хаб выполнил redirect» невозможно без querySk в events.
-      </div>
-    </div>
-    <div class="rec-item">
-      <div class="rec-icon">⏱️</div>
-      <div class="rec-text">
-        <strong>Track postback arrival delay</strong>
-        Добавить в Purchase событие Mixpanel дельту: время PC → время postback.
-        Это позволит точно разделить "delayed postback" от "true attribution loss".
-      </div>
-    </div>
-    <div class="rec-item">
-      <div class="rec-icon">🔧</div>
-      <div class="rec-text">
-        <strong>Исправить типы полей is_new_buyer / is_hot_product</strong>
-        Сейчас хранятся как строки "true"/"false" вместо boolean.
-        is_new_buyer=true: 0 из 382K matched — явная аномалия.
-      </div>
-    </div>
-    <div class="rec-item">
-      <div class="rec-icon">🌍</div>
-      <div class="rec-text">
-        <strong>Добавить country_code в Affiliate Click</strong>
-        mp_country_code есть, но явный country field упростил бы фильтрацию CIS/Global без пересчёта.
-      </div>
-    </div>
-  </div>
-
-  <div class="rec-group">
-    <div class="rec-group-title">🔬 Follow-up Analyses</div>
-    <div class="rec-item">
-      <div class="rec-icon">🔍</div>
-      <div class="rec-text">
-        <strong>Deep dive: почему tools/market-tops теряют 35% после хаба</strong>
-        Сравнить redirect URL структуру, HTTP коды ответа AliExpress, и geo/browser-распределение обслуживаемого трафика по хабам.
-      </div>
-    </div>
-    <div class="rec-item">
-      <div class="rec-icon">🧪</div>
-      <div class="rec-text">
-        <strong>Problem B с широким matching окном</strong>
-        Перезапустить с 24h и 72h окнами + matching by order_id где доступен.
-        Цель: точно разделить (а) delayed postback, (б) overwritten attribution, (в) never-attributed.
-      </div>
-    </div>
-    <div class="rec-item">
-      <div class="rec-icon">📈</div>
-      <div class="rec-text">
-        <strong>A/B тест auto-redirect для Chrome</strong>
-        DOGI underperformance (-13.3 pp) — проверить opt-in auto-redirect для Chrome-пользователей.
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- REMAINDER -->
-<div class="section" id="remainder">
-  <div class="section-title"><span class="icon">❓</span> Unexplained Remainder</div>
-  <div class="card-grid cols-2">
-    <div class="card">
-      <div class="card-label">Problem A — остаток</div>
-      <div style="margin-top:8px;font-size:13px;">
-        14 142 eligible пользователя с usable config не дошли до хаба.<br>
-        ~12 000 — DOGI-пользователи, не взаимодействовавшие с монеткой.<br>
-        ~2 000 — auto-redirect пользователи с 30-мин cooldown / cashback cooldown / Edge-специфика.<br>
-        <span style="color:var(--text-muted);font-size:12px;">Без прямого лога client-side auto-redirect попыток точнее не определить.</span>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-label">Problem B — остаток</div>
-      <div style="margin-top:8px;font-size:13px;">
-        UNKNOWN bucket (32 656) ≈ net gap (33 035) — хорошо объяснён delayed postback.<br>
-        Значимого необъяснённого остатка нет после классификации.<br>
-        <span style="color:var(--text-muted);font-size:12px;">Уточнение возможно при анализе с 72h matching окном.</span>
-      </div>
-    </div>
-  </div>
-</div>
-
-</div><!-- /main -->
 
 <script>
-  // Highlight active nav item on scroll
-  const sections = document.querySelectorAll('.section[id]');
-  const navItems = document.querySelectorAll('.nav-item');
-  const observer = new IntersectionObserver((entries) => {
-    entries.forEach(e => {
-      if (e.isIntersecting) {
-        navItems.forEach(n => n.classList.remove('active'));
-        const link = document.querySelector(`.nav-item[href="#${e.target.id}"]`);
-        if (link) link.classList.add('active');
-      }
-    });
-  }, { rootMargin: '-20% 0px -70% 0px' });
-  sections.forEach(s => observer.observe(s));
+const sections = document.querySelectorAll('h2[id]');
+const navLinks = document.querySelectorAll('.sidebar nav a[href^="#"]');
+const obs = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      navLinks.forEach(l => l.classList.remove('active'));
+      const active = document.querySelector('.sidebar nav a[href="#' + e.target.id + '"]');
+      if (active) active.classList.add('active');
+    }
+  });
+}, { rootMargin: '-20% 0px -75% 0px' });
+sections.forEach(s => obs.observe(s));
 </script>
+
 </body>
 </html>

@@ -1,26 +1,49 @@
 # Report Structure
 
+This spec covers both one-off investigation reports and recurring pulse / deep reports (see [`specs/workflows/recurring_reports.md`](../workflows/recurring_reports.md) for cadence and comparison methodology).
+
+---
+
 ## Required sections (in order)
 
-### 1. Definitions locked
-State all definitions before analysis (see `specs/rules/identity.md` for the full list).
+### 1. Report metadata
+- Report ID (e.g. `deep_2026-03-20_to_2026-04-16` or `pulse_2026-04-14_to_2026-04-20`)
+- Report type: one-off / weekly pulse / monthly deep
+- Period boundaries (UTC)
+- Generated date
+- Baseline report ID for comparison (if recurring)
 
-### 2. Data quality caveats
+### 2. Coverage snapshot
+Report % coverage of new fields in the analyzed period:
+- % of events with `events.params`
+- % of clients with `build_app`
+- % of `Purchase Completed` with new fields (`last_sk`, `is_CIS`, etc.)
+- % of events where attribution params came from each source tier (`events.params` / `querySk` / URL parsing)
+
+This lets the reader judge how much the report depends on fallbacks.
+
+### 3. Definitions locked
+State all definitions (see `specs/rules/identity.md` for the full list).
+
+### 4. Data quality caveats
 List risks and limitations (see `specs/rules/caveats.md`).
 
-### 3. Findings for Problem A
+### 5. Findings for Problem A
 With:
-- decomposition tables
+- decomposition tables (A1-A6)
 - segmentation results
-- explicit region labels (`GLOBAL_DIRECT`, `CIS_DIRECT`, `CIS_PROXY`)
+- explicit region labels (`GLOBAL_DIRECT`, `CIS_DIRECT_AF`, `CIS_DIRECT_UTM`, `CIS_PARTIAL_UTM`, `CIS_PROXY`)
+- **A7 non-activator deep-dive** (full in monthly/one-off; aggregate top-segments in weekly pulse) — see `specs/problems/problem_a_non_activator.md`
 
-### 4. Findings for Problem B
+### 6. Findings for Problem B
+*(Skip in weekly pulse — not reliable on 7-day window)*
+
 With:
-- decomposition tables
+- decomposition tables (B1-B6)
 - reason-code classification (see `specs/problems/problem_b.md`)
 - explicit region labels
 
-### 5. Ranked root causes by impact
+### 7. Ranked root causes by impact
 For each cause:
 
 | Field | Content |
@@ -30,20 +53,29 @@ For each cause:
 | Affected share | % of relevant population |
 | Estimated impact | Revenue / opportunity cost |
 | Confidence | High / Medium / Low |
-| Observability label | `GLOBAL_DIRECT` / `CIS_DIRECT` / `CIS_PROXY` |
+| Observability label | `GLOBAL_DIRECT` / `CIS_DIRECT_AF` / `CIS_DIRECT_UTM` / `CIS_PARTIAL_UTM` / `CIS_PROXY` |
 | Recommended fix | Specific action |
 
-### 6. Unexplained remainder
+### 8. Unexplained remainder
 Explicitly show what remains unexplained after all classification.
 
-### 7. Recommended fixes
+### 9. Longitudinal comparison
+*(Recurring reports only)*
+
+- Current period vs previous same-type report
+- Current period vs baseline
+- Current period vs 4-week trailing average
+- Delta with direction indicator (up/down/flat) and significance flag
+- Highlight metrics exceeding alert thresholds
+
+### 10. Recommended fixes
 Split into:
 - Quick wins
 - Medium-term product changes
 - Tracking/instrumentation changes
 - Follow-up experiments/analyses
 
-### 8. Reproducible code
+### 11. Reproducible code
 Provide a reproducible pipeline:
 - extraction
 - transformation
@@ -52,7 +84,7 @@ Provide a reproducible pipeline:
 - classification
 - final metrics/tables
 
-### 9. HTML report
+### 12. HTML report
 Build HTML report from the analysis results.
 
 ---
@@ -88,6 +120,7 @@ Build HTML report from the analysis results.
 - Large bold value (32 px+), colored by sentiment (green/amber/red)
 - Small muted label below
 - Subtle border and shadow
+- For recurring reports: small delta indicator vs previous / baseline in the corner
 
 ### Funnel visualization
 - Each funnel step rendered as a horizontal bar whose width scales with its value relative to step 1
@@ -104,6 +137,7 @@ Build HTML report from the analysis results.
   - < 50 %: light red background
 - Numeric columns right-aligned
 - Caption as styled `<h4>` above the table
+- For recurring reports: optional delta column (Δ vs previous) with +/- coloring
 
 ### Callout boxes
 - Four kinds: `critical` (red), `warning` (amber), `info` (blue), `finding` (green)
@@ -112,7 +146,9 @@ Build HTML report from the analysis results.
 
 ### Attribution label badges
 - `GLOBAL_DIRECT`: blue pill
-- `CIS_DIRECT`: amber pill
+- `CIS_DIRECT_AF`: amber pill
+- `CIS_DIRECT_UTM`: orange pill
+- `CIS_PARTIAL_UTM`: light amber pill
 - `CIS_PROXY`: grey pill
 - Consistent size, monospace font inside
 

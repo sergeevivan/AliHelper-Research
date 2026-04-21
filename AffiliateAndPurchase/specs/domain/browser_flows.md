@@ -1,8 +1,58 @@
 # Browser Flows & Eligibility
 
+## Flow is determined by BUILD, not by browser
+
+AliHelper ships three separate extension builds, one per store. The flow (DOGI vs auto-redirect) is hard-coded per build, not per browser.
+
+| Store | Build | Flow | Who typically installs |
+|-------|-------|------|------|
+| Chrome Web Store | `chrome` | DOGI coin | Chrome, Opera, Yandex, some Edge users |
+| Firefox Add-ons | `firefox` | auto-redirect | Firefox |
+| Edge Add-ons | `edge` | auto-redirect | Edge (since Edge got its own store) |
+
+**Historical note:** before Edge launched its own extension store, Edge users installed from Chrome Web Store. Some Edge users may still do so today, which means Edge users can end up with the DOGI build.
+
+---
+
+## Build identification
+
+### Primary: `clients.build_app`
+
+New clients carry a `build_app` field in `clients`:
+
+| Value | Flow |
+|-------|------|
+| `chrome` | DOGI |
+| `firefox` | auto-redirect |
+| `edge` | auto-redirect |
+
+### Fallback: browser UA
+
+For clients without `build_app` (old clients, pre-mid-April-2026), infer from the browser family.
+
+| Browser family | Fallback lineage | Confidence |
+|----------------|------------------|------------|
+| `firefox` | auto-redirect | High — Firefox installs only from Firefox store |
+| `edge` | **ambiguous** | Low — could be Edge store (auto-redirect) or Chrome store (DOGI) |
+| `chrome`, `yandex`, `opera` | DOGI | High — these browsers install from Chrome Web Store |
+| `safari`, `other` | unknown | — |
+
+### Lineage segments
+
+| Segment | Definition |
+|---------|------------|
+| `dogi` | `build_app=chrome`, OR fallback to DOGI from browser UA |
+| `auto_redirect` | `build_app=firefox` or `edge`, OR fallback to auto-redirect from browser UA (firefox only) |
+| `edge_ambiguous_build` | `edge` browser with missing `build_app` — cannot confidently classify |
+| `unknown_build` | Other browser with missing `build_app` (safari, other) |
+
+Always report `edge_ambiguous_build` as its own segment in analyses — do NOT pool it into either flow.
+
+---
+
 ## Two redirect mechanisms
 
-### Auto-redirect (Firefox, Edge)
+### Auto-redirect (Firefox build, Edge build)
 
 - Fires before page content loads
 - Triggered on `webNavigation.onBeforeNavigate`
@@ -12,7 +62,7 @@
   - Cashback cooldown allows
 - The client redirects user to the hub
 
-### DOGI flow (Chrome, Yandex, Opera, other Chrome-like)
+### DOGI flow (Chrome build)
 
 - Affiliate link is placed on product cards once every 30–60 minutes
 - User-initiated: triggered through interaction with DOGI coin / product thumbnail
@@ -21,10 +71,11 @@
 ### Methodological consequence
 
 Problem A must be segmented by:
-- Firefox/Edge auto-redirect lineage
-- Chrome-like DOGI lineage
+- auto-redirect lineage (`build_app` = firefox/edge, or fallback)
+- DOGI lineage (`build_app` = chrome, or fallback)
+- `edge_ambiguous_build` as its own row
 
-Do NOT pool them as one mechanism.
+Do NOT pool auto-redirect and DOGI as one mechanism.
 
 ---
 
@@ -88,7 +139,9 @@ Do not include ineligible page visits (search, category, cart, checkout, account
 
 ---
 
-## Browser family classification
+## Browser family classification (for fallback only)
+
+When `build_app` is missing, classify the browser family from the raw browser string:
 
 | Raw browser string contains | Family |
 |-----------------------------|--------|
@@ -100,12 +153,7 @@ Do not include ineligible page visits (search, category, cart, checkout, account
 | `safari` | safari |
 | other | other |
 
-### Lineage mapping
-
-| Family | Lineage |
-|--------|---------|
-| firefox, edge | auto-redirect |
-| all others | dogi |
+Then apply the fallback lineage table above.
 
 ---
 
@@ -114,8 +162,9 @@ Do not include ineligible page visits (search, category, cart, checkout, account
 - No direct backend log of client-side auto-redirect attempts
 - Expected auto-redirect opportunities must be reconstructed indirectly from:
   - eligible page visits in `events`
-  - browser lineage
+  - lineage (build_app or browser fallback)
   - cooldown rule (30 min for auto-redirect, 30–60 min for DOGI)
   - latest prior config snapshot in `guestStateHistory`
   - later evidence: `Affiliate Click` and/or return signals
+- `build_app` field is missing for old clients; fallback introduces uncertainty, especially for Edge
 - Some paths may be excluded from logging by config-level URL exclusions (`noLogUrls`) — absence of `events` near checkout/order flow is not always evidence of no user activity

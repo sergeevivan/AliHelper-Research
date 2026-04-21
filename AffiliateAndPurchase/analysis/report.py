@@ -1,39 +1,70 @@
 #!/usr/bin/env python3
 """
-HTML report generation from Problem A & Problem B results,
-including root-cause analysis narrative, ranked hypotheses,
-impact tables, and instrumentation recommendations.
+HTML report generation — data-driven from results_a / results_b / coverage pickles.
+
+Structure follows specs/output/report_structure.md:
+  1. Report metadata
+  2. Coverage snapshot
+  3. Definitions
+  4. Data-quality caveats
+  5. Problem A findings (funnel, A5/A6, segments, A7 non-activator deep-dive)
+  6. Problem B findings (reason codes, overwrite split, B4/B5/B6)  — skipped in pulse
+  7. Ranked root causes (auto-generated from reason-code totals)
+  8. Unexplained remainder
+  9. (Recurring) longitudinal comparison — stub
+  10. Recommendations (static generic; specific wins belong in result tables)
 
 Usage:
-    python -m analysis.report
+    REPORT_MODE=oneoff|pulse|deep python -m analysis.report
 """
 
+import os
 import pickle
 from datetime import datetime, timezone
 from pathlib import Path
 
-from src.config import CACHE_DIR, A_START, A_END, B_START, B_END
-
+from src.config import (
+    CACHE_DIR, CACHE_SUFFIX, REPORT_ID, REPORT_MODE, PROBLEM_B_ENABLED,
+    A_START, A_END, B_START, B_END,
+)
 
 REPORTS_DIR = Path("./reports")
 REPORTS_DIR.mkdir(exist_ok=True)
 
 
-def _load_pkl(name):
-    with open(CACHE_DIR / f"{name}.pkl", "rb") as f:
+# ── Data loading ─────────────────────────────────────────────────────────────
+
+def _load_pkl(name: str, required: bool = True):
+    path = CACHE_DIR / f"{name}__{CACHE_SUFFIX}.pkl"
+    if not path.exists():
+        legacy = CACHE_DIR / f"{name}.pkl"
+        if legacy.exists():
+            path = legacy
+    if not path.exists():
+        if required:
+            raise FileNotFoundError(f"Missing results file: {path}")
+        return None
+    with open(path, "rb") as f:
         return pickle.load(f)
 
 
-def _pct(num, denom):
-    if denom == 0:
+# ── Formatting helpers ───────────────────────────────────────────────────────
+
+def _fmt(n):
+    if isinstance(n, (int, float)):
+        return f"{n:,.0f}"
+    return str(n)
+
+
+def _pct(num, denom, decimals=1):
+    if denom in (0, None):
         return "N/A"
-    return f"{100 * num / denom:.1f}%"
+    return f"{100 * num / denom:.{decimals}f}%"
 
 
 # ── HTML building blocks ─────────────────────────────────────────────────────
 
 def _rate_cell_class(val_str: str) -> str:
-    """Return CSS class for a rate cell based on its numeric value."""
     try:
         v = float(str(val_str).rstrip("%"))
         if v >= 80:
@@ -45,9 +76,7 @@ def _rate_cell_class(val_str: str) -> str:
         return ""
 
 
-def _table(headers: list[str], rows: list[list], caption: str = "",
-           rate_cols: list[int] | None = None) -> str:
-    """Generate an HTML table with optional rate-colored columns."""
+def _table(headers, rows, caption: str = "", rate_cols=None) -> str:
     html = ""
     if caption:
         html += f"<h4 class='tbl-caption'>{caption}</h4>\n"
@@ -69,18 +98,10 @@ def _table(headers: list[str], rows: list[list], caption: str = "",
 
 
 def _section(title: str, content: str, level: int = 2) -> str:
-    tag = f"h{level}"
-    return f"<{tag}>{title}</{tag}>\n{content}\n"
-
-
-def _fmt(n):
-    if isinstance(n, (int, float)):
-        return f"{n:,.0f}"
-    return str(n)
+    return f"<h{level}>{title}</h{level}>\n{content}\n"
 
 
 def _callout(kind: str, text: str) -> str:
-    """Generate a styled callout box with icon."""
     styles = {
         "critical": ("callout-critical", "❗"),
         "warning":  ("callout-warning",  "⚠️"),
@@ -92,18 +113,19 @@ def _callout(kind: str, text: str) -> str:
 
 
 def _label_html(label: str) -> str:
-    """Render an attribution label badge."""
     css = {
-        "GLOBAL_DIRECT": "lbl-global",
-        "CIS_DIRECT":    "lbl-cis-direct",
-        "CIS_PROXY":     "lbl-cis-proxy",
+        "GLOBAL_DIRECT":    "lbl-global",
+        "CIS_DIRECT":       "lbl-cis-direct",
+        "CIS_DIRECT_AF":    "lbl-cis-af",
+        "CIS_DIRECT_UTM":   "lbl-cis-utm",
+        "CIS_PARTIAL_UTM":  "lbl-cis-partial",
+        "CIS_PROXY":        "lbl-cis-proxy",
     }
-    cls = css.get(label, "lbl-global")
+    cls = css.get(label, "lbl-neutral")
     return f'<span class="lbl {cls}">{label}</span>'
 
 
-def _kpi_cards(cards: list[tuple]) -> str:
-    """Render KPI cards. cards = [(label, value, sentiment), ...] sentiment: good/warn/bad/neutral"""
+def _kpi_cards(cards) -> str:
     html = '<div class="kpi-grid">'
     for label, value, sentiment in cards:
         html += (
@@ -116,10 +138,9 @@ def _kpi_cards(cards: list[tuple]) -> str:
     return html
 
 
-# ── Funnel visualization ──────────────────────────────────────────────────────
+# ── Funnel visualization ─────────────────────────────────────────────────────
 
 def funnel_visual(funnel: dict) -> str:
-    """Render a visual funnel with horizontal bars for each region."""
     steps = [
         ("Total users",               "total_users"),
         ("Eligible (product pages)",  "eligible_users"),
@@ -129,18 +150,16 @@ def funnel_visual(funnel: dict) -> str:
         ("Any return (direct+proxy)", "any_return"),
     ]
     regions = [r for r in ["Global", "CIS", "All"] if r in funnel]
-    colors = {"Global": "#3b82f6", "CIS": "#f59e0b", "All": "#8b5cf6"}
-
     html = '<div class="funnel-section">'
     for reg in regions:
         f = funnel[reg]
         base = f.get("total_users", 1) or 1
-        html += f'<h4 class="funnel-region-title">{reg} ({_fmt(f.get("total_users",0))} users)</h4>'
+        html += (f'<h4 class="funnel-region-title">{reg} '
+                 f'({_fmt(f.get("total_users",0))} users)</h4>')
         html += '<div class="funnel-bars">'
         for step_label, key in steps:
             v = f.get(key, 0)
             pct_width = min(100, 100 * v / base)
-            # color bar by conversion from previous step
             if key == "total_users":
                 bar_cls = "bar-neutral"
             elif key in ("eligible_users", "with_usable_config"):
@@ -151,7 +170,6 @@ def funnel_visual(funnel: dict) -> str:
             else:
                 conv = 100 * v / (f.get("reached_hub", 1) or 1)
                 bar_cls = "bar-good" if conv >= 80 else ("bar-mid" if conv >= 50 else "bar-bad")
-
             html += (
                 f'<div class="funnel-row">'
                 f'<div class="funnel-label">{step_label}</div>'
@@ -167,32 +185,26 @@ def funnel_visual(funnel: dict) -> str:
 
 
 def funnel_table(funnel: dict) -> str:
-    """Build funnel comparison table across regions."""
     regions = [r for r in ["Global", "CIS", "All"] if r in funnel]
     headers = ["Step"] + regions
-
     steps = [
-        ("1. Total users",               "total_users"),
-        ("2. Eligible (product pages)",  "eligible_users"),
-        ("3. + usable config",           "with_usable_config"),
+        ("1. Total users",                  "total_users"),
+        ("2. Eligible (product pages)",     "eligible_users"),
+        ("3. + usable config",              "with_usable_config"),
         ("4. Reached hub (Affiliate Click)", "reached_hub"),
-        ("5. Direct return signal",      "direct_return"),
-        ("6. Any return (direct+proxy)", "any_return"),
+        ("5. Direct return signal",         "direct_return"),
+        ("6. Any return (direct+proxy)",    "any_return"),
     ]
-
     rows = []
     for label, key in steps:
-        row = [label]
-        for reg in regions:
-            v = funnel[reg].get(key, 0)
-            row.append(_fmt(v))
+        row = [label] + [_fmt(funnel[reg].get(key, 0)) for reg in regions]
         rows.append(row)
 
     rate_col_indices = list(range(1, len(regions) + 1))
     for label, num_key, den_key in [
-        ("Eligible rate",              "eligible_users",    "total_users"),
-        ("Hub reach rate (of eligible)", "reached_hub",    "eligible_users"),
-        ("Return rate (of hub)",        "any_return",       "reached_hub"),
+        ("Eligible rate",                 "eligible_users", "total_users"),
+        ("Hub reach rate (of eligible)",  "reached_hub",    "eligible_users"),
+        ("Return rate (of hub)",          "any_return",     "reached_hub"),
     ]:
         row = [f"<em>{label}</em>"]
         for reg in regions:
@@ -202,15 +214,13 @@ def funnel_table(funnel: dict) -> str:
         rows.append(row)
 
     html = funnel_visual(funnel)
-    html += _table(headers, rows, "Funnel — numeric detail",
-                   rate_cols=rate_col_indices)
+    html += _table(headers, rows, "Funnel — numeric detail", rate_cols=rate_col_indices)
     return html
 
 
-# ── Reason code table ────────────────────────────────────────────────────────
+# ── Reason code / segment tables ─────────────────────────────────────────────
 
 def reason_code_table(reason_codes: dict) -> str:
-    """Build reason code breakdown with inline bar charts."""
     html = ""
     for reg, codes in reason_codes.items():
         headers = ["Reason Code", "Count", "%", ""]
@@ -230,20 +240,15 @@ def reason_code_table(reason_codes: dict) -> str:
     return html
 
 
-# ── Segment tables ───────────────────────────────────────────────────────────
-
-# Columns whose names suggest they are rate/percentage values
 _RATE_COL_KEYWORDS = ("rate", "pct", "loss", "return", "hub", "elig")
 
 
 def segment_tables(segments: dict, problem: str) -> str:
-    """Build segmentation tables with rate-colored cells."""
     html = ""
     for seg_name, data in segments.items():
         if not data:
             continue
         headers = list(data[0].keys())
-        # Detect rate columns by name
         rate_cols = [
             i for i, h in enumerate(headers)
             if any(kw in str(h).lower() for kw in _RATE_COL_KEYWORDS)
@@ -263,461 +268,542 @@ def segment_tables(segments: dict, problem: str) -> str:
     return html
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# ROOT-CAUSE ANALYSIS NARRATIVE
-# ══════════════════════════════════════════════════════════════════════════════
+# ── Coverage snapshot (section 2) ────────────────────────────────────────────
 
-def build_executive_summary() -> str:
-    """Build the executive summary identifying the shared root cause."""
-    return """
-<div class="exec-box">
-<h3>Executive Summary</h3>
+def coverage_section(coverage: dict | None) -> str:
+    if not coverage:
+        return _callout("info", "Coverage snapshot not available — run "
+                                "<code>analysis.extract</code> first.")
+    rows = []
+    if "events_params_count" in coverage:
+        rows.append(["events.params (new query-param object)",
+                     _fmt(coverage['events_params_count']),
+                     _fmt(coverage['events_total']),
+                     f"{coverage['events_params_pct']:.1f}%"])
+    if "build_app_count" in coverage:
+        rows.append(["clients.build_app",
+                     _fmt(coverage['build_app_count']),
+                     _fmt(coverage['clients_total']),
+                     f"{coverage['build_app_pct']:.1f}%"])
+    if "pc_new_fields_count" in coverage:
+        rows.append(["Purchase Completed new fields",
+                     _fmt(coverage['pc_new_fields_count']),
+                     _fmt(coverage['pc_total']),
+                     f"{coverage['pc_new_fields_pct']:.1f}%"])
+    html = _table(["Instrumentation field", "Present", "Total", "Coverage"],
+                  rows, "New-field coverage", rate_cols=[3])
 
-<p><strong>Shared root cause:</strong> The dominant cause of purchase commission loss is
-<strong>foreign affiliate overwrite</strong> &mdash; third-party affiliates (cashback services,
-coupon extensions, price comparison tools) replace AliHelper's <code>sk</code> before
-the user completes their purchase.</p>
+    if "build_app_breakdown" in coverage:
+        bd = coverage["build_app_breakdown"]
+        rows2 = [[k or "<missing>", _fmt(v)] for k, v in
+                 sorted(bd.items(), key=lambda kv: -kv[1])[:10]]
+        html += _table(["build_app value", "Clients"], rows2,
+                       "build_app breakdown")
 
-<ul>
-<li><strong>Problem A</strong> &mdash; The Global affiliate flow works: 93.7% of users who reach
-the hub return with our <code>sk</code>. CIS return rate is 95.6%+ (100% including proxy).
-The main funnel gap is <strong>hub reach</strong>: 31.1% of eligible users never generate
-<code>Affiliate Click</code>, driven by DOGI activation UX (64% vs auto-redirect 87%) and
-older extension versions.</li>
-<li><strong>Problem B</strong> &mdash; Of 240,100 unmatched Purchase Completed events (49.6% gap),
-<strong>65.2% (156,550)</strong> are Global users whose AliHelper <code>sk</code> was overwritten
-by a foreign <code>sk</code> within the 72h attribution window. An additional 24.6% (59,140)
-had no AliHelper <code>sk</code> at all in 72h. CIS losses are smaller: 3.4% unknown,
-2.2% no UTM, 1.9% foreign UTM overwrite.</li>
-</ul>
+    # Attribution source tiers (events.params → querySk → url_parse).
+    # Produced by analysis.extract._source_tier_counts as:
+    #   {"sample_size": N, "total_events": N,
+    #    "by_kind": {"sk": {params:.., querySk:.., url_parse:.., none:..},
+    #                "af": {params:.., url_parse:.., none:..},
+    #                "utm":{params:.., url_parse:.., none:..}}}
+    tiers = coverage.get("source_tiers") or {}
+    by_kind = tiers.get("by_kind") or {}
+    if by_kind:
+        rows3 = []
+        for kind in ("sk", "af", "utm"):
+            tier = by_kind.get(kind) or {}
+            if not tier:
+                continue
+            denom = sum(tier.values()) or 1
+            rows3.append([
+                kind,
+                f"{_fmt(tier.get('params', 0))} ({100*tier.get('params',0)/denom:.1f}%)",
+                (f"{_fmt(tier.get('querySk', 0))} "
+                 f"({100*tier.get('querySk',0)/denom:.1f}%)"
+                 if "querySk" in tier else "—"),
+                f"{_fmt(tier.get('url_parse', 0))} ({100*tier.get('url_parse',0)/denom:.1f}%)",
+                f"{_fmt(tier.get('none', 0))} ({100*tier.get('none',0)/denom:.1f}%)",
+            ])
+        if rows3:
+            caption = (
+                "Attribution source tiers — where each param came from "
+                f"(sampled {_fmt(tiers.get('sample_size', 0))} of "
+                f"{_fmt(tiers.get('total_events', 0))} events)"
+            )
+            html += _table(
+                ["param", "events.params", "querySk", "url_parse", "none"],
+                rows3, caption=caption,
+            )
 
-<p><strong>Key numbers:</strong> 85.3% of Global Purchase Completed events had our <code>sk</code>
-in the 72h window, but 94.1% of those were subsequently overwritten by a foreign <code>sk</code>.
-For CIS, 83.7% had our UTM markers, with 18.8% overwritten.</p>
-
-<p><strong>Estimated revenue impact:</strong> Addressing affiliate overwrite for the 156,550 monthly
-Global purchases lost to foreign <code>sk</code> overwrite represents the dominant recovery
-opportunity. Reducing overwrite by even 30% would recover ~47,000 attributed purchases per month.</p>
-</div>
-"""
-
-
-def build_problem_a_analysis() -> str:
-    """Build the root-cause analysis for Problem A."""
-    html = ""
-
-    # ── Root cause 1: Hub reach gap ───────────────────────────────────────
-    html += _section("Root Cause #1: 31.1% of eligible users never reach the hub",
-                     "", 3)
-
-    html += _callout("warning",
-        f"{_label_html('GLOBAL_DIRECT')} {_label_html('CIS_DIRECT')} &mdash; "
-        "Of 65,001 eligible users with usable config, 20,241 (31.1%) never generated "
-        "an <code>Affiliate Click</code>. This is the largest funnel gap in Problem A.")
-
-    html += """<p><strong>Segmentation breakdown:</strong></p>
-<ul>
-<li><strong>By lineage:</strong> DOGI users reach the hub at 64.0% vs auto-redirect at 87.1%.
-    The DOGI flow requires user interaction (clicking DOGI coin/product thumbnail), while
-    auto-redirect fires automatically. The 23pp gap represents ~11,900 missed activations
-    from DOGI users.</li>
-<li><strong>By version:</strong> Older versions (3.0.x and 2.30.x) have dramatically lower hub
-    reach rates: 3.0.5 at 6.7%, 3.0.3 at 3.2%, 2.30.8 at 14.3%. These collectively affect
-    ~3,400 users. Version 3.1.0 (24,890 users) reaches 62.1% vs 3.1.2 at 89.8% &mdash;
-    a 27.7pp gap affecting ~6,900 users within v3.1.0.</li>
-<li><strong>By browser:</strong> The "other" browser category (3,964 users) has only 31.2% hub
-    reach &mdash; these browsers may not support the required extension APIs.
-    Safari (4 users) is negligible.</li>
-</ul>
-"""
-
-    # ── Root cause 2: Modest Global return gap ────────────────────────────
-    html += _section("Root Cause #2: 6.3% of Global hub users have no sk return",
-                     "", 3)
-
-    html += _callout("info",
-        f"{_label_html('GLOBAL_DIRECT')} &mdash; "
-        "32,531 of 34,729 Global users who reached the hub (93.7%) returned to AliExpress "
-        "with an AliHelper-owned <code>sk</code>. The remaining 2,198 (6.3%) show no "
-        "<code>sk</code> in subsequent events.")
-
-    html += """<p><strong>Evidence:</strong></p>
-<ul>
-<li>Global <code>sk</code> return is functional across all versions, browsers, and hubs
-    (all ~95% return rate). This is not a systemic failure.</li>
-<li>The 6.3% gap likely represents: redirect timeouts, user cancellations (closing tab
-    before return), ad-blockers or privacy extensions stripping query parameters,
-    or users navigating away from AliExpress before the return event fires.</li>
-<li>A5 check: 404 Global users had our <code>sk</code> without <code>Affiliate Click</code>
-    in Mixpanel &mdash; a minor Mixpanel event-delivery loss (~1.2% of Global hub users).</li>
-<li>By browser: Edge shows highest return rate at 99.1%, while Firefox shows 90.9% &mdash;
-    the auto-redirect flow in Firefox may occasionally lose the sk during its redirect chain.</li>
-</ul>
-"""
-
-    # ── Root cause 3: CIS has specific issues ────────────────────────────
-    html += _section("Root Cause #3: CIS-specific issues (smaller but actionable)", "", 3)
-
-    html += _callout("info",
-        f"{_label_html('CIS_DIRECT')} {_label_html('CIS_PROXY')} &mdash; "
-        "CIS performs well: 95.6% direct UTM return rate and ~100% "
-        "total return (including proxy). But 213 CIS users reached the hub with no return, "
-        "and 210 had UTM markers but no Affiliate Click (tracking gap).")
-
-    html += """<p><strong>CIS details:</strong></p>
-<ul>
-<li>210 CIS users show AliHelper UTM markers without <code>Affiliate Click</code> in
-    Mixpanel &mdash; a minor Mixpanel event-delivery loss (~2.1% of CIS hub users).</li>
-<li>213 CIS users reached hub but had neither UTM nor proxy return &mdash; possible
-    hub-side failures or abandoned redirects.</li>
-<li>CIS hub reach rate is 64.5% (vs Global 70.2%), partly because BY (Belarus) shows
-    57.3% hub reach.</li>
-<li>Yandex browser shows 95.4% return rate &mdash; consistent with CIS-heavy
-    user base (Yandex is predominantly Russian).</li>
-</ul>
-"""
-
-    # ── Impact quantification ────────────────────────────────────────────
-    html += _section("Impact Quantification &mdash; Problem A", "", 3)
-    html += _table(
-        ["Cause", "Label", "Affected Users", "% of Total", "Severity", "Fixability"],
-        [
-            ["Hub-reach gap: DOGI vs auto-redirect",
-             _label_html("GLOBAL_DIRECT") + " " + _label_html("CIS_DIRECT"),
-             "~11,900", "~17.9%", "High &mdash; missed activation opportunities",
-             "Medium &mdash; product UX, DOGI prominence, auto-trigger exploration"],
-            ["Version 3.1.0 underperformance vs 3.1.2",
-             _label_html("GLOBAL_DIRECT") + " " + _label_html("CIS_DIRECT"),
-             "~6,900", "~10.4%", "Medium &mdash; fixable with version upgrade push",
-             "High &mdash; push users to 3.1.2+"],
-            ["Legacy versions (< 3.1.0) very low hub reach",
-             _label_html("GLOBAL_DIRECT") + " " + _label_html("CIS_DIRECT"),
-             "~3,400", "~5.1%", "Medium", "High &mdash; force-update or deprecate"],
-            ["Global sk return gap (6.3%)",
-             _label_html("GLOBAL_DIRECT"),
-             "2,198", "3.3%", "Low &mdash; 93.7% return rate is healthy",
-             "Low &mdash; diminishing returns to optimize further"],
-            ["CIS Mixpanel tracking loss",
-             _label_html("CIS_DIRECT"),
-             "210 + 213", "0.6%", "Low", "Low priority"],
-        ],
-        "Problem A &mdash; Impact by Cause"
-    )
-
+    # Flow lineage split — produced by analysis.extract._lineage_split as:
+    #   {"total_clients": N, "counts": {...}, "pcts": {...}}
+    lin = coverage.get("lineage_split") or {}
+    counts = lin.get("counts") or {}
+    pcts = lin.get("pcts") or {}
+    if counts:
+        order = ("dogi", "auto_redirect", "edge_ambiguous_build", "unknown_build")
+        rows4 = [
+            [k, _fmt(counts.get(k, 0)), f"{pcts.get(k, 0.0):.1f}%"]
+            for k in order if k in counts
+        ]
+        html += _table(["lineage", "clients", "share"], rows4,
+                       caption="Flow lineage split",
+                       rate_cols=[2])
     return html
 
 
-def build_problem_b_analysis() -> str:
-    """Build the root-cause analysis for Problem B."""
-    html = ""
+# ── A7 rendering ─────────────────────────────────────────────────────────────
 
-    # ── Root cause 1: Foreign sk overwrite (Global) ───────────────────────
-    html += _section("Root Cause #1: Foreign affiliate overwrite (65.2% of gap)",
-                     "", 3)
+def a7_section(a7: dict | None, mode: str) -> str:
+    if not a7:
+        return ""
+    html = '<h3 id="a7">A7 — Non-Activator Deep-Dive</h3>\n'
 
-    html += _callout("critical",
-        f"{_label_html('GLOBAL_DIRECT')} &mdash; 156,550 of 240,100 unmatched Purchase Completed "
-        "events (65.2%) are Global users with reason code <code>FOREIGN_SK_AFTER_OUR_SK</code>. "
-        "AliHelper's <code>sk</code> was present in the 72h attribution window but was subsequently "
-        "overwritten by a third-party <code>sk</code> before purchase.")
+    # Table 1 — cohort sizing
+    t1 = a7.get("table1_cohort_sizing", {})
+    html += _kpi_cards([
+        ("Non-activators",
+         f"{_fmt(t1.get('non_activators', 0))} ({t1.get('non_pct_of_total', 0):.1f}%)",
+         "warn"),
+        ("Non-activators with eligible opp.",
+         _fmt(t1.get("non_with_eligible", 0)), "bad"),
+        ("Non-activators, no eligible opp.",
+         _fmt(t1.get("non_no_eligible", 0)), "neutral"),
+        ("Never-activator (in-period)",
+         _fmt(t1.get("never_activator_in_period", 0)), "neutral"),
+    ])
 
-    html += """<p><strong>This is a last-click attribution problem.</strong> The affiliate activation
-flow works correctly &mdash; our <code>sk</code> is set. But between activation and purchase,
-the user encounters another affiliate source (cashback extension, coupon site, price comparison
-tool, or another browser extension) that replaces AliHelper's <code>sk</code> with its own.</p>
+    # Table 2 — profile distribution (skipped in pulse; volume too thin
+    # per-dimension to be meaningful on a 7-day window).
+    if mode != "pulse":
+        t2 = a7.get("table2_profile", {})
+        for dim, cohorts in t2.items():
+            rows = []
+            na = {r["value"]: r for r in cohorts.get("non_activator", [])}
+            ac = {r["value"]: r for r in cohorts.get("activator", [])}
+            values = list(na.keys()) + [v for v in ac.keys() if v not in na]
+            for v in values[:10]:
+                na_r = na.get(v, {})
+                ac_r = ac.get(v, {})
+                rows.append([
+                    v,
+                    f'{_fmt(na_r.get("count", 0))} ({na_r.get("pct", 0):.1f}%)',
+                    f'{_fmt(ac_r.get("count", 0))} ({ac_r.get("pct", 0):.1f}%)',
+                ])
+            if rows:
+                html += _table(
+                    [dim, "non-activator", "activator"],
+                    rows,
+                    caption=f"A7.2 Profile distribution — {dim}",
+                )
 
-<p><strong>Scale of the overwrite problem:</strong></p>
-<ul>
-<li>85.3% of Global Purchase Completed (377,286 / 442,237) had our <code>sk</code> in the 72h window</li>
-<li>Of those, <strong>94.1%</strong> (355,158) were subsequently overwritten by a foreign <code>sk</code></li>
-<li>156,550 ended up unmatched (the overwrite caused commission loss)</li>
-<li>The remaining ~198,000 with overwrite still matched to a <code>Purchase</code> &mdash;
-    these may be cases where the overwrite happened after the commission was already locked in,
-    or where the time-based matching is coincidental</li>
-</ul>
+    # Table 3 — non-activator rate by segment.
+    # Per specs/problems/problem_a_non_activator.md "Weekly pulse subset":
+    # restrict Table 3 to browser / country / flow-lineage only in pulse.
+    t3 = a7.get("table3_non_activator_rate", {})
+    t3_dims = (("browser_fam", "country", "lineage") if mode == "pulse"
+               else tuple(t3.keys()))
+    for seg_name in t3_dims:
+        rows = t3.get(seg_name) or []
+        if not rows:
+            continue
+        html += _table(
+            [seg_name, "users", "activators", "non_activators", "non_activator_rate"],
+            [[str(r[seg_name]) if seg_name in r else "<missing>",
+              _fmt(r["users"]), _fmt(r["activators"]),
+              _fmt(r["non_activators"]),
+              f"{r['non_activator_rate']:.1f}%"] for r in rows],
+            caption=f"A7.3 Non-activator rate × {seg_name}",
+            rate_cols=[4],
+        )
 
-<p><strong>Causal chain:</strong></p>
+    # Table 5 — top-N non-activator cohorts. Shown in BOTH pulse (top-5)
+    # and monthly deep (top-10), per spec.
+    t5 = a7.get("table5_top_cohorts", [])
+    if t5:
+        t5_limit = 5 if mode == "pulse" else 10
+        rows = [[r["cohort"], _fmt(r["users"]), f"{r['share_pct']:.1f}%"]
+                for r in t5[:t5_limit]]
+        html += _table(["cohort (browser / country)", "users", "% of non-activators"],
+                       rows,
+                       caption=f"A7.5 Top-{t5_limit} non-activator cohorts",
+                       rate_cols=[2])
+
+    # Weekly pulse stops here — no session metrics, no hypothesis proxies.
+    if mode == "pulse":
+        return html
+
+    # Table 4 — session metrics
+    t4 = a7.get("table4_session_metrics", {})
+    if t4:
+        rows = []
+        for cohort in ("non_activator", "activator"):
+            s = t4.get(cohort, {})
+            rows.append([
+                cohort,
+                _fmt(s.get("sessions", 0)),
+                f"{s.get('median_duration_s', 0):.0f}",
+                f"{s.get('median_events', 0):.1f}",
+                f"{s.get('median_eligible_hits', 0):.1f}",
+                f"{s.get('bounce_rate_pct', 0):.1f}%",
+            ])
+        html += _table(
+            ["cohort", "sessions", "median_duration_s", "median_events",
+             "median_eligible_hits", "bounce_rate"],
+            rows, caption="A7.4 Session metrics — non-activator vs activator",
+        )
+
+    # (Table 5 already rendered above the pulse cut-off.)
+
+    # Table 6 — hypothesis proxies
+    t6 = a7.get("table6_hypothesis_proxies", {})
+    if t6:
+        rows = [[k.replace("_", " "), _fmt(v)] for k, v in t6.items()]
+        html += _table(["hypothesis proxy", "affected non-activators"],
+                       rows, caption="A7.6 Hypothesis proxy counts")
+    return html
+
+
+# ── Ranked root causes (auto-generated) ──────────────────────────────────────
+
+_REASON_LABEL = {
+    # Global
+    "NO_OUR_SK_IN_72H":       "GLOBAL_DIRECT",
+    "FOREIGN_SK_AFTER_OUR_SK":"GLOBAL_DIRECT",
+    "AF_AFTER_OUR_SK":        "GLOBAL_DIRECT",
+    "CASHBACK_TRACE":         "GLOBAL_DIRECT",
+    "UNKNOWN":                "GLOBAL_DIRECT",
+    # CIS
+    "CIS_NO_OUR_SIGNAL_IN_72H": "CIS_DIRECT_AF",
+    "CIS_FOREIGN_AF_AFTER_OURS": "CIS_DIRECT_AF",
+    "CIS_FOREIGN_UTM_AFTER_OURS":"CIS_DIRECT_UTM",
+    "CIS_NO_HUB_REACH_OBSERVED": "CIS_DIRECT_AF",
+    "CIS_HUB_REACHED_NO_RETURN": "CIS_DIRECT_AF",
+    "CIS_PARTIAL_UTM_ONLY":      "CIS_PARTIAL_UTM",
+    "CIS_PROXY_ONLY":            "CIS_PROXY",
+    "CIS_CASHBACK_TRACE":        "CIS_DIRECT_AF",
+    "CIS_UNKNOWN":               "CIS_DIRECT_AF",
+}
+
+
+def ranked_root_causes(results_b: dict) -> str:
+    rc = (results_b or {}).get("reason_codes", {}).get("All", [])
+    if not rc:
+        return _callout("info", "Problem B not available — ranked root causes skipped.")
+    rc_sorted = sorted(rc, key=lambda r: r["count"], reverse=True)[:10]
+    rows = []
+    for i, r in enumerate(rc_sorted, start=1):
+        label = _REASON_LABEL.get(r["reason_code"], "")
+        rows.append([
+            str(i),
+            f'<code>{r["reason_code"]}</code>',
+            _label_html(label) if label else "",
+            _fmt(r["count"]),
+            f'{r["pct"]:.1f}%',
+        ])
+    return _table(
+        ["#", "Reason code", "Label", "Unmatched PC", "Share"],
+        rows, caption="Ranked root causes — Problem B reason codes",
+        rate_cols=[4],
+    )
+
+
+# ── Static sections ──────────────────────────────────────────────────────────
+
+def definitions_section() -> str:
+    return """
 <ol>
-<li>User visits AliExpress product page &rarr; extension activates &rarr; hub redirect</li>
-<li>User returns with our <code>sk</code> (e.g., <code>_c36PoUEj</code>)</li>
-<li>Before purchasing, user visits a cashback site / coupon extension / other affiliate link</li>
-<li>Third-party affiliate sets a different <code>sk</code> (e.g., <code>_ePNSNV</code>)</li>
-<li>User completes purchase &rarr; commission goes to the last <code>sk</code> owner (not us)</li>
-<li><code>Purchase Completed</code> fires, but no AliHelper <code>Purchase</code> is generated</li>
+<li><strong>Canonical user identity:</strong> <code>guests._id</code> =
+    Mixpanel <code>$user_id</code>. Join events / clients / guestStateHistory
+    via <code>guest_id</code>. <em>Never</em> use <code>clients._id</code>.</li>
+<li><strong>Global direct affiliate state (sk-based):</strong> events whose
+    attribution is an AliHelper-owned <code>sk</code> from the whitelist.
+    Source priority: <code>events.params.sk</code> →
+    <code>events.payload.querySk</code> → parse <code>events.payload.url</code>.</li>
+<li><strong>CIS direct affiliate state (two mutually exclusive URL patterns
+    on <code>aliexpress.ru</code>):</strong>
+    Pattern A <code>af=*_7685</code> (+ typically <code>utm_medium=cpa</code>);
+    Pattern B <code>utm_source=aerkol</code> + <code>utm_medium=cpa</code> +
+    <code>utm_campaign=*_7685</code>. Source priority:
+    <code>events.params.&lt;name&gt;</code> → parse URL.</li>
+<li><strong>CIS proxy-return fallback:</strong> when no owned CIS marker is
+    present but an <code>aliexpress.ru</code> event lands within
+    ≤120 s after an <code>Affiliate Click</code> inside the 72 h window — label
+    <code>CIS_PROXY</code>. Weakest evidence tier; never overrides a direct
+    marker.</li>
+<li><strong>Eligible opportunity:</strong> product pages only —
+    DOGI: page carries <code>productId</code>; auto-redirect: URL matches
+    <code>clients.checkListUrls</code>. Homepages / category pages do not
+    generate affiliate activation.</li>
+<li><strong>Attribution window:</strong> 72 h before
+    <code>Purchase Completed</code>, server-side <code>events</code> only.
+    Client-side <code>last_sk</code> / <code>last_af</code> /
+    <code>last_utm_*</code> have no 72 h limit and are NOT authoritative.</li>
+<li><strong>Client enrichment rule:</strong> use <code>clients</code> only
+    to add context (browser, user_agent, os, city, country, client_version)
+    to <code>events</code>. Treat as client-state history, not a canonical
+    user table.</li>
+<li><strong>Global overwrite rule:</strong> within the 72 h window, a foreign
+    <code>sk</code> OR a foreign <code>af</code> (third-party CIS marker on
+    a Global AliExpress host) observed <em>after</em> the latest owned
+    <code>sk</code> timestamp counts as overwrite.</li>
+<li><strong>CIS overwrite rule:</strong> within the 72 h window, a foreign
+    <code>af</code> or foreign <code>utm_*</code> observed <em>after</em>
+    the latest owned CIS marker counts as overwrite. <code>foreign_af_after</code>
+    and <code>foreign_utm_after</code> are tracked separately.</li>
+<li><strong>Mature purchase cohort:</strong> for Problem B (deep mode), the
+    window ends 7 days before today so postbacks have a chance to arrive
+    (post­backs can lag 3–7 days). See
+    <code>specs/workflows/recurring_reports.md</code>.</li>
+<li><strong>Purchase matching rule:</strong> same user, ±10 min proximity
+    (no <code>order_id</code> available). Sensitivity run at 5 / 10 / 15 / 20 min.</li>
+<li><strong>Global direct-return evidence rule:</strong> an owned <code>sk</code>
+    marker (by source priority above) inside the 72 h window.</li>
+<li><strong>CIS direct-return evidence rule (UTM in URL):</strong> Pattern A
+    <code>af=*_7685</code> or Pattern B full UTM triple
+    (<code>aerkol</code> + <code>cpa</code> + <code>*_7685</code>) inside
+    the 72 h window.</li>
+<li><strong>CIS proxy-return rule:</strong> fallback ≤120 s; used only when
+    no direct CIS marker is present.</li>
+<li><strong>Latest delivered config rule:</strong> for any enrichment that
+    depends on config (hub domain, cashback list, checkListUrls), use the
+    most recent <code>guestStateHistory</code> entry before the event
+    timestamp — never the live config.</li>
+<li><strong>Routing-based regional split:</strong> classify by URL domain —
+    <code>aliexpress.ru</code> = CIS, all other AliExpress hosts = Global.
+    <em>UA is routed as Global/Portals</em>, not CIS. An EPN suffix
+    <code>_7685</code> on a Global host is an anomaly, not a CIS classification.</li>
+</ol>
+
+<h3>Labels</h3>
+<p>Every finding carries one of:
+<code>GLOBAL_DIRECT</code> / <code>CIS_DIRECT_AF</code> /
+<code>CIS_DIRECT_UTM</code> / <code>CIS_PARTIAL_UTM</code> / <code>CIS_PROXY</code>.
+<code>CIS_DIRECT_AF</code> + <code>CIS_DIRECT_UTM</code> may be aggregated
+as <code>CIS_DIRECT</code> in summaries.</p>
+"""
+
+
+def caveats_section() -> str:
+    return """
+<ul>
+<li><strong>Cashback observability:</strong> client-side only; partial evidence via
+    <code>Purchase Completed.cashback_list</code> (current session only).</li>
+<li><strong>Auto-redirect attempts:</strong> no backend log; reconstructed from eligible
+    visits + lineage + cooldown + config + later signals.</li>
+<li><strong>noLogUrls exclusions:</strong> absence of events near checkout is not
+    necessarily absence of activity.</li>
+<li><strong>Short-window (pulse) limitations:</strong> Problem B is NOT reliable on 7 d —
+    postbacks lag 3–7 d, per-reason-code volume too thin. Monthly deep only.</li>
+<li><strong>New-field coverage:</strong> <code>events.params</code>, <code>build_app</code>,
+    and <code>Purchase Completed</code> last_* fields rolled out mid-April 2026 — coverage
+    is near zero in earlier windows.</li>
+<li><strong>PC client-side fields:</strong> <code>last_sk</code> / <code>last_af</code> /
+    <code>last_utm_*</code> have no 72 h limit and are NOT authoritative. Used only for
+    validation (B6) / coverage.</li>
+<li><strong>MongoDB indexing:</strong> <code>events</code> has no index on <code>created</code> —
+    use <code>_id</code>-based filtering + <code>allowDiskUse=true</code>.</li>
+<li><strong>Mixpanel timezone:</strong> <code>Europe/Moscow</code> (UTC+3) — explicit
+    conversion for all joins.</li>
+</ul>
+"""
+
+
+def longitudinal_section() -> str:
+    """Section 9 — recurring reports only. Populated when LONG_BASELINE env
+    var is set to a prior report_id; otherwise renders a placeholder."""
+    baseline = os.getenv("LONG_BASELINE", "").strip()
+    prev_same = os.getenv("LONG_PREVIOUS", "").strip()
+    if REPORT_MODE == "oneoff":
+        return _callout("info",
+                        "Longitudinal comparison is not applicable for "
+                        "one-off reports — see sections 5/6 for the primary "
+                        "findings.")
+    if not baseline and not prev_same:
+        return _callout("info",
+                        "No baseline configured. Set <code>LONG_BASELINE</code> "
+                        "and/or <code>LONG_PREVIOUS</code> env vars to a prior "
+                        "<code>report_id</code> to enable current-vs-previous / "
+                        "current-vs-baseline / 4-week-trailing comparison. "
+                        "See <code>specs/workflows/recurring_reports.md</code>.")
+    rows = []
+    if prev_same:
+        rows.append(["Previous same-type", prev_same,
+                     "<em>Δ computation pending wiring</em>"])
+    if baseline:
+        rows.append(["Baseline", baseline,
+                     "<em>Δ computation pending wiring</em>"])
+    rows.append(["4-week trailing avg", "<em>derived from history store</em>",
+                 "<em>Δ computation pending wiring</em>"])
+    return _table(["Reference", "Report id", "Delta"],
+                  rows, caption="Longitudinal comparison")
+
+
+def reproducible_code_section() -> str:
+    return f"""
+<p>Every figure in this report is rebuildable from the raw extracts in
+<code>cache/</code>. Cache namespace for this run:
+<code>{CACHE_SUFFIX}</code>.</p>
+
+<h3>Pipeline (run in order)</h3>
+<ol>
+<li><code>python -m analysis.extract</code> — MongoDB + Mixpanel export
+    into <code>cache/</code> (incremental; reuses existing extracts).</li>
+<li><code>python -m analysis.problem_a</code> — Problem A funnel, label
+    breakdown, A5/A6, segments, A7 non-activator deep-dive. Writes
+    <code>cache/results_a__{CACHE_SUFFIX}.pkl</code>.</li>
+<li><code>python -m analysis.problem_b</code> — Problem B attribution
+    reconstruction, reason codes, B3 delayed postback, B4/B5/B6. Writes
+    <code>cache/results_b__{CACHE_SUFFIX}.pkl</code> (skipped in pulse).</li>
+<li><code>python -m analysis.report</code> — this HTML report.</li>
+</ol>
+
+<h3>Mode selection</h3>
+<p>Set <code>REPORT_MODE</code> to one of <code>oneoff</code> /
+<code>pulse</code> / <code>deep</code> before running any step. Windows
+are derived from the mode in <code>src/config.py</code>; cache files are
+keyed by <code>mode__A_START__A_END</code> to avoid cross-contamination.</p>
+
+<h3>Files</h3>
+<ul>
+<li><code>analysis/extract.py</code> — extraction + coverage snapshot.</li>
+<li><code>analysis/problem_a.py</code> — Problem A analysis + A7.</li>
+<li><code>analysis/problem_b.py</code> — Problem B analysis + B6 validation.</li>
+<li><code>analysis/report.py</code> — HTML assembly from cached results.</li>
+<li><code>src/utils.py</code> — classification, labeling, region / lineage /
+    subtype helpers.</li>
+<li><code>src/config.py</code> — windows, OUR_SKS, EPN cabinet id,
+    attribution constants.</li>
+</ul>
+"""
+
+
+def recommendations_section() -> str:
+    return """
+<h3>Quick wins</h3>
+<ol>
+<li>Push <code>clients.build_app</code> completion monotonically — force updates on old
+    clients to shrink <code>edge_ambiguous_build</code> and <code>unknown_build</code>.</li>
+<li>Backfill <code>events.params</code> coverage monitoring as an alert (drops =
+    instrumentation regression).</li>
+<li>For any label-level finding with <code>CIS_PARTIAL_UTM</code> share &gt; 1 %, trace
+    the creative source — these are typically misconfigured landing pages.</li>
+</ol>
+
+<h3>Medium-term product changes</h3>
+<ol>
+<li>Reduce time between AliHelper activation and purchase (checkout-time re-activation
+    when a foreign <code>sk</code> / <code>af</code> is detected).</li>
+<li>Improve DOGI activation rate where DOGI hub-reach is materially below auto-redirect.</li>
+<li>Add normalised affiliate metadata to <code>events</code>
+    (<code>affiliate_provider</code>, <code>is_alihelper_owned</code>,
+    <code>affiliate_marker_type</code>).</li>
+</ol>
+
+<h3>Tracking &amp; instrumentation</h3>
+<ol>
+<li>Log an <code>Affiliate Overwrite Detected</code> event when our owned marker is
+    replaced — real-time overwrite telemetry.</li>
+<li>Log auto-redirect attempts (success/failure) as backend events.</li>
+<li>Backend-log cashback exposure where detectable (currently client local storage only).</li>
 </ol>
 """
 
-    # ── Root cause 2: No sk in 72h ────────────────────────────────────────
-    html += _section("Root Cause #2: No AliHelper sk in 72h window (24.6% of gap)", "", 3)
 
-    html += _callout("warning",
-        f"{_label_html('GLOBAL_DIRECT')} &mdash; 59,140 Global Purchase Completed events (24.6% of gap) "
-        "had no AliHelper-owned <code>sk</code> at all in the 72-hour attribution window.")
+# ── B-specific rendering helpers ─────────────────────────────────────────────
 
-    html += """<p>These users made purchases without any prior AliHelper affiliate activation in 72h.
-Possible explanations:</p>
-<ul>
-<li>User browsed AliExpress directly without triggering the extension</li>
-<li>User was on ineligible pages (search, homepage, cart) and the extension did not activate</li>
-<li>Affiliate activation occurred more than 72 hours before the purchase</li>
-<li>Extension was disabled or not installed during the browsing session preceding purchase</li>
-<li>The user belongs to the 31.1% who never reach the hub (Problem A Root Cause #1)</li>
-</ul>
-"""
-
-    # ── Root cause 3: Global unknown ──────────────────────────────────────
-    html += _section("Root Cause #3: Global unknown losses (2.7% of gap)", "", 3)
-
-    html += _callout("info",
-        f"{_label_html('GLOBAL_DIRECT')} &mdash; 6,518 Global Purchase Completed events (2.7% of gap) "
-        "had our <code>sk</code> and no detected foreign overwrite, yet no matching "
-        "<code>Purchase</code>.")
-
-    html += """<p>Possible explanations:</p>
-<ul>
-<li><strong>Delayed postback:</strong> Partner network <code>Purchase</code> events may arrive later
-    than our analysis window.</li>
-<li><strong>Cashback interference:</strong> Not detectable from <code>querySk</code> alone &mdash;
-    cashback tools may operate through mechanisms other than sk replacement.</li>
-<li><strong>Partner program exclusions:</strong> Certain product categories or seller types may be
-    excluded from commission eligibility.</li>
-<li><strong>af parameter overwrite:</strong> The <code>af</code> parameter is not detectable from
-    the <code>querySk</code> field. Some overwrites may use <code>af</code> instead of <code>sk</code>.</li>
-</ul>
-"""
-
-    # ── Root cause 4: CIS losses ──────────────────────────────────────────
-    html += _section("Root Cause #4: CIS losses (7.5% of gap combined)", "", 3)
-
-    html += _callout("info",
-        f"{_label_html('CIS_DIRECT')} &mdash; CIS contributes 17,856 unmatched purchases (7.4% of gap), "
-        "split across three reason codes.")
-
-    html += """
-<ul>
-<li><strong>CIS_UNKNOWN: 8,145 (3.4%)</strong> &mdash; Our UTM markers present, no foreign overwrite
-    detected, but no matching <code>Purchase</code>. Likely delayed postback, cashback interference
-    (stored in client local storage, not observable), or partner program exclusions.</li>
-<li><strong>CIS_NO_OUR_UTM_IN_72H: 5,222 (2.2%)</strong> &mdash; No AliHelper UTM markers in 72h.
-    Users who purchased without prior AliHelper affiliate activation.</li>
-<li><strong>CIS_FOREIGN_UTM_AFTER_OURS: 4,489 (1.9%)</strong> &mdash; Our UTM was overwritten by
-    foreign affiliate UTMs. Of 35,432 CIS purchases with our markers, 6,653 (18.8%) were overwritten.
-    Same last-click attribution problem as Global, but smaller scale.</li>
-</ul>
-"""
-
-    # ── Matching sensitivity note ─────────────────────────────────────────
-    html += _section("Matching Sensitivity Analysis (B4)", "", 3)
-    html += _table(
-        ["Window", "Matched", "Match Rate", "Delta vs 10min"],
-        [
-            ["5 min", "194,790", "40.2%", "-10.2pp"],
-            ["10 min (current)", "244,456", "50.4%", "baseline"],
-            ["15 min", "257,665", "53.2%", "+2.8pp"],
-            ["20 min", "265,783", "54.9%", "+4.5pp"],
-        ],
-        "Purchase matching sensitivity"
-    )
-
-    html += """<p>Widening from 10 to 20 minutes recovers only 21,327 additional matches (4.5pp).
-The diminishing returns suggest the core gap is not a matching-window artifact &mdash; it reflects
-genuinely unattributed purchases where no commission-bearing <code>Purchase</code> was generated
-by AliExpress's partner system.</p>
-"""
-
-    # ── Segment-level observations ───────────────────────────────────────
-    html += _section("Segment-Level Observations (B5)", "", 3)
-    html += """
-<ul>
-<li><strong>Pakistan</strong> dominates volume (151,490 PC, 31.3% of total) with 58.8% loss rate.
-    High overwrite rate suggests aggressive cashback/coupon ecosystem in PK.</li>
-<li><strong>Brazil</strong> shows the highest loss rate at 69.5% (11,703 PC) &mdash;
-    likely similar cashback/coupon interference pattern.</li>
-<li><strong>US</strong> has the lowest loss rate at 30.5% (20,787 PC) &mdash; possibly
-    fewer competing affiliate extensions or better purchase-timing patterns.</li>
-<li><strong>Opera</strong> browser shows 55.1% loss (8,881 PC) &mdash; highest among browsers.
-    Opera has a built-in cashback feature that may compete for affiliate attribution.</li>
-<li><strong>Auto-redirect</strong> lineage has 39.4% loss vs DOGI's 50.8% &mdash;
-    auto-redirect users complete the purchase sooner after activation, leaving less
-    time for overwrite.</li>
-</ul>
-"""
-
-    # ── Impact quantification ────────────────────────────────────────────
-    html += _section("Impact Quantification &mdash; Problem B", "", 3)
-    html += _table(
-        ["Cause", "Label", "Unmatched Purchases", "% of Gap", "Confidence", "Fixability"],
-        [
-            ["Foreign sk overwrite (Global last-click loss)",
-             _label_html("GLOBAL_DIRECT"),
-             "156,550", "65.2%", "High",
-             "Hard &mdash; structural last-click competition; mitigate via faster checkout nudge"],
-            ["No AliHelper sk in 72h (Global no activation)",
-             _label_html("GLOBAL_DIRECT"),
-             "59,140", "24.6%", "High",
-             "Medium &mdash; improve hub reach (see Problem A)"],
-            ["CIS unknown (delayed postback + cashback + partner rules)",
-             _label_html("CIS_DIRECT"),
-             "8,145", "3.4%", "Medium",
-             "Partially fixable: longer postback wait, cashback detection"],
-            ["Global unknown (sk present, no foreign overwrite detected)",
-             _label_html("GLOBAL_DIRECT"),
-             "6,518", "2.7%", "Medium",
-             "Investigate af-parameter overwrite, cashback, partner exclusions"],
-            ["CIS no AliHelper UTM in 72h",
-             _label_html("CIS_DIRECT"),
-             "5,222", "2.2%", "Medium",
-             "Improve activation coverage for CIS users"],
-            ["CIS foreign affiliate overwrite",
-             _label_html("CIS_DIRECT"),
-             "4,489", "1.9%", "High",
-             "Hard &mdash; same last-click competition as Global"],
-        ],
-        "Problem B &mdash; Gap Attribution"
-    )
-
-    return html
-
-
-def build_unexplained_remainder() -> str:
-    """Build the unexplained remainder section."""
-    return """
-<p><strong>Problem A:</strong> Global sk return rate is 93.7% &mdash; healthy, with a small
-6.3% gap likely due to redirect timeouts, ad-blockers, or abandoned navigations. On the hub-reach
-side, ~31% of eligible users do not reach the hub. After accounting for DOGI vs auto-redirect
-lineage differences and version-specific underperformance, approximately 5-8% of eligible users
-remain unexplained (possibly due to cooldown collisions, extension load failures, or intermittent
-network issues).</p>
-
-<p><strong>Problem B:</strong> After attributing 65.2% to foreign sk overwrite, 24.6% to no sk
-in 72h, 2.7% to Global unknown, and 7.5% to CIS causes:</p>
-<ul>
-<li><strong>Global UNKNOWN (6,518 events, 2.7%)</strong> is the primary unexplained Global component.
-    These had our sk with no detected foreign overwrite &mdash; possible <code>af</code>-parameter
-    overwrite (not detectable from <code>querySk</code> alone), delayed postback, or partner exclusions.</li>
-<li><strong>CIS_UNKNOWN (8,145 events, 3.4%)</strong> is the primary unexplained CIS component.
-    Improved cashback observability and longer postback windows would likely reclassify
-    most of this residual.</li>
-<li>Purchase matching imprecision may account for some false negatives (widening to 20min
-    recovers +4.5pp), but the marginal gain is small.</li>
-</ul>
-"""
-
-
-def build_recommendations() -> str:
-    """Build the recommendations section."""
+def problem_b_findings(results_b: dict) -> str:
+    if not results_b:
+        return _callout("info", "Problem B not available in this mode (pulse).")
     html = ""
+    s = results_b.get("summary", {})
+    if s:
+        total_pc = s.get("total_pc", 0) or 1
+        matched = s.get("matched", 0)
+        unmatched = s.get("unmatched", 0)
+        html += _kpi_cards([
+            ("Total Purchase Completed", _fmt(total_pc), "neutral"),
+            ("Matched to Purchase",
+             f"{_fmt(matched)} ({100*matched/total_pc:.1f}%)",
+             "good" if 100*matched/total_pc >= 60 else "warn"),
+            ("Unmatched (gap)",
+             f"{_fmt(unmatched)} ({100*unmatched/total_pc:.1f}%)",
+             "bad"),
+        ])
 
-    html += _section("Quick Wins (deployable in 1-2 sprints)", "", 3)
-    html += """<ol>
-<li><strong>Push extension update to 3.1.2+.</strong> Version 3.1.0 (24,890 users) has 62.1%
-    hub reach vs 3.1.2's 89.8%. A forced update would recover an estimated ~6,900 activations/month.</li>
-<li><strong>Deprecate legacy versions (&lt; 3.1.0).</strong> Versions 3.0.x and 2.30.x affect
-    ~3,400 users with 3-19% hub reach rates. Force-update or disable affiliate features.</li>
-<li><strong>Profile the top foreign <code>sk</code> values</strong> overwriting ours. Identify
-    whether the overwrite is dominated by a few known cashback/coupon extensions, or is broadly
-    distributed. This determines whether targeted countermeasures are viable.</li>
-<li><strong>Extract UTM to dedicated indexed fields</strong> at write time in
-    <code>events.payload</code>. Improves future analysis speed and reliability.</li>
-</ol>
-"""
+    # B1
+    attr = results_b.get("attribution", {})
+    if attr:
+        rows = []
+        for reg, v in attr.items():
+            rows.append([
+                reg, _fmt(v["total"]), _fmt(v["any_owned"]),
+                _pct(v["any_owned"], v["total"]),
+                _fmt(v.get("owned_sk", 0)),
+                _fmt(v.get("owned_af", 0)),
+                _fmt(v.get("owned_utm_full", 0)),
+                _fmt(v.get("owned_utm_partial", 0)),
+            ])
+        html += _table(
+            ["Region", "Total PC", "Any owned marker", "Any %",
+             "owned sk", "owned af (A)", "owned UTM full (B)", "partial UTM"],
+            rows, caption="B1 — Attribution evidence by effective region",
+            rate_cols=[3],
+        )
 
-    html += _section("Medium-Term Product Changes (1-3 months)", "", 3)
-    html += """<ol>
-<li><strong>Reduce time between activation and purchase.</strong> The overwrite window is the time
-    between our <code>sk</code> being set and the user completing purchase. Strategies: purchase
-    nudges on product pages, streamlined checkout flow, or re-activation before checkout.</li>
-<li><strong>Implement re-activation on checkout.</strong> If the extension detects the user is
-    approaching checkout and our <code>sk</code> has been overwritten (foreign sk detected in URL),
-    trigger a silent re-redirect to restore our affiliate state.</li>
-<li><strong>Improve DOGI activation rate.</strong> DOGI's 64.0% hub reach vs auto-redirect's
-    87.1% represents a large gap. Consider: more prominent DOGI coin, auto-trigger on hover,
-    or a hybrid approach where DOGI users get periodic auto-redirects.</li>
-<li><strong>Add normalized affiliate metadata fields</strong> to <code>events</code>:
-    <code>affiliate_provider</code>, <code>is_alihelper_owned</code>,
-    <code>affiliate_marker_type</code>.</li>
-</ol>
-"""
+    # B2
+    ow = results_b.get("overwrite", {})
+    if ow:
+        rows = []
+        for reg, v in ow.items():
+            den = v["with_owned"] or 1
+            rows.append([
+                reg, _fmt(v["with_owned"]),
+                f"{_fmt(v['foreign_sk_after'])} ({100*v['foreign_sk_after']/den:.1f}%)",
+                f"{_fmt(v['af_on_global_after'])} ({100*v['af_on_global_after']/den:.1f}%)",
+                f"{_fmt(v['foreign_af_after'])} ({100*v['foreign_af_after']/den:.1f}%)",
+                f"{_fmt(v['foreign_utm_after'])} ({100*v['foreign_utm_after']/den:.1f}%)",
+            ])
+        html += _table(
+            ["Region", "With owned", "foreign sk after",
+             "af on Global after", "foreign af after", "foreign UTM after"],
+            rows, caption="B2 — Overwrite (split: foreign-af vs foreign-utm)",
+        )
 
-    html += _section("Tracking and Instrumentation Changes", "", 3)
-    html += """<ol>
-<li><strong>Log overwrite events.</strong> When the extension detects that <code>querySk</code>
-    has changed from our owned value to a foreign value, fire a dedicated
-    <code>Affiliate Overwrite Detected</code> event with: previous sk, new sk, time since
-    our activation. This provides real-time overwrite telemetry.</li>
-<li><strong>Instrument cashback detection.</strong> Where the extension detects cashback-site
-    cookies or interference, log this as a backend event (currently only in client local storage).</li>
-<li><strong>Add CIS state tracking fields</strong> (analogous to Global's <code>last_sk</code>):
-    <code>last_epn_campaign</code>, <code>last_epn_source</code>, <code>last_epn_datetime</code>.</li>
-<li><strong>Log auto-redirect attempts</strong> (success/failure) as backend events. Currently
-    there is no direct signal of whether a redirect was attempted, only downstream evidence.</li>
-<li><strong>Log the <code>af</code> parameter</strong> separately from <code>querySk</code>.
-    Currently <code>querySk</code> stores only the raw sk value; <code>af</code> is not captured,
-    making af-based overwrite invisible. The 6,518 Global UNKNOWN cases may be af overwrites.</li>
-</ol>
-"""
+    # Reason codes
+    rc = results_b.get("reason_codes", {})
+    if rc:
+        html += reason_code_table(rc)
 
-    html += _section("Follow-Up Experiments and Analyses", "", 3)
-    html += """<ol>
-<li><strong>Foreign sk profiling.</strong> Identify the top 10 foreign <code>sk</code> values
-    that overwrite ours. Cross-reference with known cashback providers and competing extensions.
-    This will show whether the overwrite is concentrated (targetable) or diffuse (structural).</li>
-<li><strong>Time-to-overwrite analysis.</strong> Measure the median time between our <code>sk</code>
-    being set and the foreign overwrite. If it's short (minutes), the overwrite may happen during
-    the same browsing session. If long (hours/days), it's separate sessions.</li>
-<li><strong>A/B test re-activation on checkout.</strong> For a sample of users, silently
-    re-activate our affiliate link when the user navigates to checkout. Measure impact on
-    <code>Purchase</code> match rate.</li>
-<li><strong>CIS cashback deep dive.</strong> For the 8,145 CIS_UNKNOWN cases, extract
-    <code>cashback_list</code> values where available and correlate with known cashback provider
-    patterns to estimate cashback interference share.</li>
-<li><strong>Country-level overwrite analysis.</strong> PK (58.8% loss) and BR (69.5% loss) show
-    high loss rates. Profile whether these countries have specific cashback ecosystems that
-    drive higher overwrite rates.</li>
-</ol>
-"""
+    # B4
+    b4 = results_b.get("matching_sensitivity", [])
+    if b4:
+        rows = [[f"{r['window_min']} min", _fmt(r["matched"]),
+                 f"{r['pct']:.1f}%"] for r in b4]
+        html += _table(["Window", "Matched", "Match rate"],
+                       rows, caption="B4 — Matching window sensitivity",
+                       rate_cols=[2])
 
+    # B5
+    if "segments" in results_b:
+        html += segment_tables(results_b["segments"], "Problem B")
+
+    # B6
+    b6 = results_b.get("pc_field_validation", {})
+    if b6:
+        rows = []
+        for kind, v in b6.items():
+            rows.append([kind, _fmt(v["checked"]), _fmt(v["agree"]),
+                         f"{v['agree_pct']:.1f}%"])
+        html += _table(["PC field", "checked", "agree", "agreement %"],
+                       rows, caption="B6 — PC field vs events reconstruction",
+                       rate_cols=[3])
     return html
 
 
-def build_data_quality_section() -> str:
-    """Build enhanced data quality section with analysis-specific notes."""
-    return """
-<ul>
-<li><strong>Cashback observability:</strong> Cashback-site visits are tracked only in client
-    local storage, NOT logged to backend. Cashback-related explanations carry inherent uncertainty.
-    The CIS_UNKNOWN residual (8,145 events) likely contains hidden cashback interference.</li>
-<li><strong>Auto-redirect attempts:</strong> No direct backend log of client-side redirect
-    attempts. Hub reach rates are lower bounds &mdash; some attempted redirects may fail silently
-    without generating an <code>Affiliate Click</code>.</li>
-<li><strong>URL parsing:</strong> <code>events.payload.url</code> may contain malformed,
-    encoded, or truncated URLs. UTM extraction handles errors gracefully but may produce false
-    negatives.</li>
-<li><strong>Purchase matching:</strong> Time-based matching (10-min window) introduces possible
-    false positives (coincidental temporal proximity) and false negatives (legitimate matches outside
-    the window). Sensitivity check shows match rate ranges from 40.2% (5min) to 54.9% (20min).</li>
-<li><strong>guestStateHistory:</strong> Represents config delivery, not proof of redirect
-    execution. A user having a config with a hub assigned does not mean they used that hub.</li>
-<li><strong>Mixpanel timezone:</strong> Project timezone is Europe/Moscow (UTC+3). All
-    MongoDB-Mixpanel joins use explicit UTC conversion.</li>
-<li><strong>Global return evidence:</strong> The 93.7% Global return rate confirms the sk mechanism
-    works. The <code>events.payload.querySk</code> field stores the raw sk value directly (not a
-    query string). The 94.1% foreign overwrite rate among Global users with our marker is the
-    dominant cause of purchase attribution loss.</li>
-<li><strong>CIS proxy return:</strong> The 120-second time-based proxy return is a heuristic.
-    Some proxy returns may be coincidental page loads, not true affiliate returns. Label:
-    <code>CIS_PROXY</code>.</li>
-<li><strong>noLogUrls exclusions:</strong> Some paths may be excluded from logging by config-level
-    URL exclusions. Absence of <code>events</code> near checkout/order flow is not always evidence
-    of no user activity.</li>
-</ul>
-"""
-
-
-# ── Full report ──────────────────────────────────────────────────────────────
+# ── CSS ──────────────────────────────────────────────────────────────────────
 
 _CSS = """
-/* ── Reset & base ─────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body {
@@ -737,10 +823,7 @@ ol, ul { margin: 8px 0 8px 0; padding-left: 22px; }
 li { margin: 5px 0; }
 hr { border: none; border-top: 1px solid #e5e7eb; margin: 32px 0; }
 
-/* ── Layout ────────────────────────────────────────────────── */
 .layout { display: flex; min-height: 100vh; }
-
-/* Sidebar */
 .sidebar {
   width: 240px; flex-shrink: 0;
   position: sticky; top: 0; height: 100vh; overflow-y: auto;
@@ -760,23 +843,15 @@ hr { border: none; border-top: 1px solid #e5e7eb; margin: 32px 0; }
   color: #2563eb; background: #eff6ff;
   border-left-color: #2563eb; text-decoration: none;
 }
-.sidebar nav .nav-sub { padding-left: 30px; font-size: 12px; }
+.main { flex: 1; max-width: 1160px; padding: 32px 48px; overflow-x: hidden; }
 
-/* Main content */
-.main {
-  flex: 1; max-width: 1160px; padding: 32px 48px;
-  overflow-x: hidden;
-}
-
-/* ── Typography ────────────────────────────────────────────── */
 h1 {
   font-size: 26px; font-weight: 700; color: #111827;
   border-bottom: 3px solid #2563eb; padding-bottom: 10px; margin-top: 0;
 }
 h2 {
   font-size: 20px; font-weight: 700; color: #1e40af;
-  margin-top: 48px; border-bottom: 2px solid #e5e7eb;
-  padding-bottom: 6px;
+  margin-top: 48px; border-bottom: 2px solid #e5e7eb; padding-bottom: 6px;
 }
 h3 { font-size: 16px; font-weight: 600; color: #374151; margin-top: 28px; }
 h4, .tbl-caption {
@@ -785,9 +860,8 @@ h4, .tbl-caption {
 }
 .meta { color: #9ca3af; font-size: 13px; margin-top: -8px; }
 
-/* ── KPI cards ─────────────────────────────────────────────── */
 .kpi-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(160px,1fr));
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(180px,1fr));
   gap: 14px; margin: 20px 0 28px;
 }
 .kpi-card {
@@ -795,14 +869,13 @@ h4, .tbl-caption {
   border-radius: 10px; padding: 16px 18px; text-align: center;
   box-shadow: 0 1px 3px rgba(0,0,0,.06);
 }
-.kpi-value { font-size: 30px; font-weight: 800; line-height: 1.1; }
+.kpi-value { font-size: 28px; font-weight: 800; line-height: 1.1; }
 .kpi-label { font-size: 12px; color: #6b7280; margin-top: 4px; }
 .kpi-good  { color: #059669; }
 .kpi-warn  { color: #d97706; }
 .kpi-bad   { color: #dc2626; }
 .kpi-neutral { color: #2563eb; }
 
-/* ── Callout boxes ─────────────────────────────────────────── */
 .callout {
   display: flex; gap: 12px; align-items: flex-start;
   padding: 13px 16px; margin: 14px 0;
@@ -815,17 +888,19 @@ h4, .tbl-caption {
 .callout-info     { background:#eff6ff; border-color:#60a5fa; color:#1e3a8a; }
 .callout-finding  { background:#f0fdf4; border-color:#34d399; color:#14532d; }
 
-/* ── Attribution label badges ──────────────────────────────── */
 .lbl {
   display: inline-block; padding: 2px 8px; border-radius: 99px;
   font-size: 11.5px; font-weight: 700; font-family: monospace;
   margin-right: 4px; letter-spacing: .2px;
 }
-.lbl-global     { background: #dbeafe; color: #1d4ed8; }
-.lbl-cis-direct { background: #fef3c7; color: #92400e; }
-.lbl-cis-proxy  { background: #e5e7eb; color: #374151; }
+.lbl-global        { background: #dbeafe; color: #1d4ed8; }
+.lbl-cis-direct    { background: #fef3c7; color: #92400e; }
+.lbl-cis-af        { background: #fed7aa; color: #9a3412; }
+.lbl-cis-utm       { background: #fde68a; color: #92400e; }
+.lbl-cis-partial   { background: #fef9c3; color: #854d0e; }
+.lbl-cis-proxy     { background: #e5e7eb; color: #374151; }
+.lbl-neutral       { background: #e5e7eb; color: #374151; }
 
-/* ── Tables ────────────────────────────────────────────────── */
 .tbl-wrap { overflow-x: auto; margin: 0 0 28px; border-radius: 8px;
             border: 1px solid #e5e7eb; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
 table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
@@ -843,12 +918,10 @@ tbody tr:hover td { background: #eff6ff; }
 tbody tr:nth-child(even) td { background: #fafafa; }
 tbody tr:nth-child(even):hover td { background: #eff6ff; }
 
-/* Rate cell coloring */
 .rate-good { background: #d1fae5 !important; color: #065f46; font-weight: 600; }
 .rate-mid  { background: #fef3c7 !important; color: #78350f; font-weight: 600; }
 .rate-bad  { background: #fee2e2 !important; color: #7f1d1d; font-weight: 600; }
 
-/* ── Funnel bars ───────────────────────────────────────────── */
 .funnel-section { margin: 20px 0 28px; }
 .funnel-region-title {
   font-size: 13px; font-weight: 700; color: #374151;
@@ -868,18 +941,9 @@ tbody tr:nth-child(even):hover td { background: #eff6ff; }
 .funnel-count { width: 80px; text-align: right; font-size: 13px;
                 font-weight: 600; color: #374151; }
 
-/* ── Reason-code inline bar ────────────────────────────────── */
 .rc-bar-wrap { width: 120px; background: #f3f4f6; border-radius: 3px; height: 10px; overflow: hidden; }
 .rc-bar { height: 100%; background: #6366f1; border-radius: 3px; }
 
-/* ── Exec summary box ──────────────────────────────────────── */
-.exec-box {
-  background: #eff6ff; border: 2px solid #93c5fd;
-  border-radius: 10px; padding: 22px 28px; margin: 20px 0;
-}
-.exec-box h3 { margin-top: 0; color: #1e40af; font-size: 17px; }
-
-/* ── TOC (sidebar duplicate for mobile) ────────────────────── */
 @media (max-width: 860px) {
   .sidebar { display: none; }
   .main { padding: 20px; }
@@ -904,246 +968,156 @@ sections.forEach(s => obs.observe(s));
 """
 
 
-def build_report(results_a: dict, results_b: dict) -> str:
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+# ── Full report ──────────────────────────────────────────────────────────────
 
-    a_period = f"{A_START.strftime('%Y-%m-%d')} — {A_END.strftime('%Y-%m-%d')}"
-    b_period = f"{B_START.strftime('%Y-%m-%d')} — {B_END.strftime('%Y-%m-%d')}"
+def build_report(results_a: dict, results_b: dict | None,
+                 coverage: dict | None) -> str:
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    a_period = f"{A_START.strftime('%Y-%m-%d')} → {A_END.strftime('%Y-%m-%d')}"
+    b_period = (f"{B_START.strftime('%Y-%m-%d')} → {B_END.strftime('%Y-%m-%d')}"
+                if B_START and B_END else "n/a (pulse mode)")
+
+    nav_items = [
+        ('meta',      '1. Metadata'),
+        ('coverage',  '2. Coverage'),
+        ('defs',      '3. Definitions'),
+        ('caveats',   '4. Data quality'),
+        ('pa',        '5. Problem A'),
+    ]
+    if PROBLEM_B_ENABLED:
+        nav_items.append(('pb', '6. Problem B'))
+    nav_items += [
+        ('ranked',      '7. Ranked root causes'),
+        ('unexplained', '8. Unexplained remainder'),
+        ('longitudinal','9. Longitudinal'),
+        ('recs',        '10. Recommendations'),
+        ('repro',       '11. Reproducible code'),
+    ]
+    nav_html = "\n".join(f'<a href="#{i}">{t}</a>' for i, t in nav_items)
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AliHelper Research Report — {now}</title>
+<title>AliHelper Research — {REPORT_ID}</title>
 <style>{_CSS}</style>
 </head>
 <body>
 <div class="layout">
 
-<!-- ── Sidebar ────────────────────────────────────────── -->
 <aside class="sidebar">
   <div class="sidebar-logo">📊 AliHelper Research</div>
-  <nav>
-    <a href="#exec">1. Executive Summary</a>
-    <a href="#defs">2. Definitions</a>
-    <a href="#caveats">3. Data Quality</a>
-    <a href="#pa-data">4. Problem A — Data</a>
-    <a href="#pa-rca" class="nav-sub">↳ Root-Cause Analysis</a>
-    <a href="#pb-data">5. Problem B — Data</a>
-    <a href="#pb-rca" class="nav-sub">↳ Root-Cause Analysis</a>
-    <a href="#ranked">6. Ranked Root Causes</a>
-    <a href="#unexplained">7. Unexplained Remainder</a>
-    <a href="#recs">8. Recommended Fixes</a>
-  </nav>
+  <nav>{nav_html}</nav>
 </aside>
 
-<!-- ── Main content ───────────────────────────────────── -->
 <main class="main">
 <h1>AliHelper — Root-Cause Research Report</h1>
-<p class="meta">Generated: {now} &nbsp;·&nbsp;
-   Problem A: {a_period} &nbsp;·&nbsp;
-   Problem B: {b_period}</p>
+<p class="meta">
+  Generated {now} &nbsp;·&nbsp;
+  Mode <code>{REPORT_MODE}</code> &nbsp;·&nbsp; Report id <code>{REPORT_ID}</code>
+</p>
 
-<h2 id="exec">1. Executive Summary</h2>
-{build_executive_summary()}
+<h2 id="meta">1. Report metadata</h2>
+{_table(
+    ["Field", "Value"],
+    [
+        ["report_id", REPORT_ID],
+        ["report_mode", REPORT_MODE],
+        ["problem_a_period_utc", a_period],
+        ["problem_b_period_utc", b_period],
+        ["generated_at_utc", now],
+        ["baseline_report_id", os.getenv("LONG_BASELINE", "—") or "—"],
+        ["previous_same_type_report_id", os.getenv("LONG_PREVIOUS", "—") or "—"],
+    ],
+    caption="Report metadata",
+)}
 
-<h2 id="defs">2. Definitions</h2>
-<ul>
-<li><strong>User identity:</strong> <code>guests._id</code> = Mixpanel <code>$user_id</code></li>
-<li><strong>Global attribution:</strong> <code>events.payload.querySk</code> (raw sk value);
-    whitelist: <code>_c36PoUEj</code>, <code>_d6jWDbY</code>, <code>_AnTGXs</code>,
-    <code>_olPBn9X</code>, <code>_dVh6yw5</code></li>
-<li><strong>CIS attribution:</strong> UTM params in <code>events.payload.url</code>
-    — <code>utm_source=aerkol</code>, <code>utm_medium=cpa</code>,
-    <code>utm_campaign=*_7685</code></li>
-<li><strong>Eligible pages:</strong> product pages only — DOGI: <code>productId</code> present;
-    auto-redirect: URL matches <code>checkListUrls</code> patterns</li>
-<li><strong>Attribution window:</strong> 72 h before Purchase Completed</li>
-<li><strong>Purchase matching:</strong> same user, ±10 min (no <code>order_id</code>)</li>
-<li><strong>Regional routing:</strong> by actual affiliate system — UA = Global, not CIS</li>
-<li><strong>CIS countries:</strong> RU, BY, KZ, UZ, AZ, AM, GE, KG, MD, TJ, TM</li>
-<li><strong>Browser lineage:</strong> Firefox + Edge = auto-redirect; all others = DOGI</li>
-</ul>
+<h2 id="coverage">2. Coverage snapshot</h2>
+{coverage_section(coverage)}
 
-<h2 id="caveats">3. Data Quality Caveats</h2>
-{build_data_quality_section()}
+<h2 id="defs">3. Definitions</h2>
+{definitions_section()}
+
+<h2 id="caveats">4. Data-quality caveats</h2>
+{caveats_section()}
+
+<h2 id="pa">5. Problem A — Missing Affiliate Click</h2>
 """
 
-    # ── Problem A: Data Tables ──────────────────────────────────────────
-    html += '<h2 id="pa-data">4. Problem A — Missing Affiliate Click</h2>\n'
-
-    if "funnel" in results_a:
+    if results_a and "funnel" in results_a:
         f = results_a["funnel"]
         all_f = f.get("All", {})
         total = all_f.get("total_users", 1) or 1
-        hub   = all_f.get("reached_hub", 0)
-        ret   = all_f.get("any_return", 0)
+        hub = all_f.get("reached_hub", 0)
+        ret = all_f.get("any_return", 0)
         hub_rate = 100 * hub / total
         ret_rate = 100 * ret / (hub or 1)
         html += _kpi_cards([
-            ("Total Users",     _fmt(total),                                  "neutral"),
-            ("Eligible",        _fmt(all_f.get("eligible_users", 0)),         "good"),
-            ("Reached Hub",     f'{_fmt(hub)} ({hub_rate:.0f}%)',              "good" if hub_rate >= 70 else "warn"),
-            ("Any Return",      f'{_fmt(ret)} ({ret_rate:.0f}%)',              "good" if ret_rate >= 80 else ("warn" if ret_rate >= 50 else "bad")),
+            ("Total users", _fmt(total), "neutral"),
+            ("Eligible", _fmt(all_f.get("eligible_users", 0)), "good"),
+            ("Reached hub", f"{_fmt(hub)} ({hub_rate:.0f}%)",
+             "good" if hub_rate >= 70 else "warn"),
+            ("Any return", f"{_fmt(ret)} ({ret_rate:.0f}%)",
+             "good" if ret_rate >= 80 else ("warn" if ret_rate >= 50 else "bad")),
         ])
         html += funnel_table(f)
 
-    if "missing_ac" in results_a:
-        ma = results_a["missing_ac"]
+    lbl = (results_a or {}).get("label_breakdown", {})
+    if lbl:
+        rows = [[_label_html(str(k)), _fmt(int(v))] for k, v in lbl.items()]
+        html += _table(["Primary label", "Users"], rows,
+                       caption="Label breakdown (per-user primary label)")
+
+    ma = (results_a or {}).get("missing_ac", {})
+    if ma:
         html += _section("A5 — Missing Mixpanel click tracking",
-                         f"<p>{_label_html('GLOBAL_DIRECT')} Global: {_fmt(ma['global'])} users with our sk but no Affiliate Click<br>"
-                         f"{_label_html('CIS_DIRECT')} CIS: {_fmt(ma['cis'])} users with our UTM but no Affiliate Click</p>", 3)
+                         f"<p>{_label_html('GLOBAL_DIRECT')} Global: "
+                         f"{_fmt(ma.get('global', 0))} users with our sk but no Affiliate Click<br>"
+                         f"{_label_html('CIS_DIRECT_AF')}{_label_html('CIS_DIRECT_UTM')} CIS: "
+                         f"{_fmt(ma.get('cis', 0))} users with our af/UTM but no Affiliate Click</p>", 3)
 
-    if "hub_no_return" in results_a:
-        hn = results_a["hub_no_return"]
+    hn = (results_a or {}).get("hub_no_return", {})
+    if hn:
         html += _section("A6 — Hub reached, no return",
-                         f"<p>{_label_html('GLOBAL_DIRECT')} Global: {_fmt(hn['global'])} users reached hub but no sk return<br>"
-                         f"{_label_html('CIS_DIRECT')} CIS: {_fmt(hn['cis'])} users reached hub but no UTM/proxy return</p>", 3)
+                         f"<p>{_label_html('GLOBAL_DIRECT')} Global: "
+                         f"{_fmt(hn.get('global', 0))} users reached hub, no owned sk<br>"
+                         f"{_label_html('CIS_DIRECT_AF')}{_label_html('CIS_DIRECT_UTM')} CIS: "
+                         f"{_fmt(hn.get('cis', 0))} users reached hub, no af/UTM or proxy return</p>", 3)
 
-    if "segments" in results_a:
+    if (results_a or {}).get("segments"):
         html += segment_tables(results_a["segments"], "Problem A")
 
-    # ── Problem A: Root-Cause Analysis ──────────────────────────────────
-    html += '<h2 id="pa-rca">Problem A — Root-Cause Analysis</h2>\n'
-    html += build_problem_a_analysis()
+    html += a7_section((results_a or {}).get("a7"), REPORT_MODE)
 
-    # ── Problem B: Data Tables ──────────────────────────────────────────
-    html += '<h2 id="pb-data">5. Problem B — Purchase Completed without Purchase</h2>\n'
+    if PROBLEM_B_ENABLED:
+        html += '<h2 id="pb">6. Problem B — Purchase Completed without Purchase</h2>\n'
+        html += problem_b_findings(results_b)
 
-    if "summary" in results_b:
-        s = results_b["summary"]
-        total_pc  = s.get("total_pc", 1) or 1
-        matched   = s.get("matched", 0)
-        unmatched = s.get("unmatched", 0)
-        match_rate   = 100 * matched / total_pc
-        unmatch_rate = 100 * unmatched / total_pc
-        html += _kpi_cards([
-            ("Total Purchase Completed", _fmt(total_pc),                                              "neutral"),
-            ("Matched to Purchase",      f'{_fmt(matched)} ({match_rate:.1f}%)',                      "warn" if match_rate < 60 else "good"),
-            ("Unmatched (gap)",          f'{_fmt(unmatched)} ({unmatch_rate:.1f}%)',                  "bad"),
-        ])
+    html += '<h2 id="ranked">7. Ranked root causes</h2>\n'
+    html += ranked_root_causes(results_b)
 
-    if "attribution" in results_b:
-        attr = results_b["attribution"]
-        g_total  = 442237
-        g_marker = attr['global_with_marker']
-        g_pct    = f"{100 * g_marker / g_total:.1f}" if g_total else "N/A"
-        c_total  = 42319
-        c_marker = attr['cis_with_marker']
-        c_pct    = f"{100 * c_marker / c_total:.1f}" if c_total else "N/A"
-        html += _section("B1 — Attribution evidence",
-                         f"<p>{_label_html('GLOBAL_DIRECT')} Global: {_fmt(g_marker)}/{_fmt(g_total)} "
-                         f"({g_pct}%) had our affiliate marker in 72 h<br>"
-                         f"{_label_html('CIS_DIRECT')} CIS: {_fmt(c_marker)}/{_fmt(c_total)} "
-                         f"({c_pct}%) had our affiliate marker in 72 h</p>", 3)
-
-    if "reason_codes" in results_b:
-        html += reason_code_table(results_b["reason_codes"])
-
-    if "segments" in results_b:
-        html += segment_tables(results_b["segments"], "Problem B")
-
-    # ── Problem B: Root-Cause Analysis ──────────────────────────────────
-    html += '<h2 id="pb-rca">Problem B — Root-Cause Analysis</h2>\n'
-    html += build_problem_b_analysis()
-
-    # ── Ranked root causes (both) ───────────────────────────────────────
-    html += '<h2 id="ranked">6. Ranked Root Causes by Impact</h2>\n'
-    html += """<p>The following table ranks all identified root causes across both problems,
-ordered by estimated impact.</p>
+    html += """<h2 id="unexplained">8. Unexplained remainder</h2>
+<p>Everything under reason code <code>UNKNOWN</code> / <code>CIS_UNKNOWN</code>
+remains unexplained after attribution reconstruction — likely a mix of delayed
+postback, client-side cashback exposure (not observable server-side), partner-program
+exclusions, or af-parameter overwrite on Global URLs (new-field coverage dependent).
+See the Coverage snapshot above to judge how much of this residual is explained by
+fallback methodology.</p>
 """
-    html += _table(
-        ["Rank", "Root Cause", "Problem", "Label", "Impact",
-         "Confidence", "Recommended Fix"],
-        [
-            ["1",
-             "<strong>Foreign sk overwrite</strong> &mdash; Third-party affiliates (cashback, coupons, "
-             "competing extensions) replace our <code>sk</code> before purchase completion",
-             "B",
-             _label_html("GLOBAL_DIRECT"),
-             "156,550 unmatched purchases (65.2% of gap);<br>"
-             "94.1% of Global users with our marker get overwritten",
-             "High",
-             "Re-activation on checkout; time-to-overwrite analysis; profile foreign sk values"],
-            ["2",
-             "<strong>No AliHelper sk in 72h</strong> &mdash; Global users purchasing without "
-             "any prior affiliate activation in the attribution window",
-             "B",
-             _label_html("GLOBAL_DIRECT"),
-             "59,140 unmatched purchases (24.6% of gap)",
-             "High",
-             "Improve hub reach (fix #3, #4, #5)"],
-            ["3",
-             "<strong>DOGI vs auto-redirect activation gap</strong> &mdash; DOGI users reach hub "
-             "at 64.0% vs auto-redirect at 87.1%",
-             "A",
-             _label_html("GLOBAL_DIRECT") + " " + _label_html("CIS_DIRECT"),
-             "~11,900 missed activations/month (17.9% of users)",
-             "High",
-             "Improve DOGI UX, consider hybrid auto-trigger"],
-            ["4",
-             "<strong>Version 3.1.0 underperformance</strong> &mdash; 62.1% hub reach vs "
-             "3.1.2's 89.8%",
-             "A",
-             _label_html("GLOBAL_DIRECT") + " " + _label_html("CIS_DIRECT"),
-             "~6,900 missed activations/month (10.4% of users)",
-             "High",
-             "Push update to 3.1.2+"],
-            ["5",
-             "<strong>CIS unknown losses</strong> &mdash; our UTM present, no foreign overwrite "
-             "detected, but no Purchase credited",
-             "B",
-             _label_html("CIS_DIRECT"),
-             "8,145 unmatched purchases (3.4% of gap)",
-             "Medium",
-             "Improve cashback detection; investigate partner delays"],
-            ["6",
-             "<strong>Global unknown losses</strong> &mdash; our sk present, no foreign overwrite "
-             "detected, but no Purchase; possibly af overwrite",
-             "B",
-             _label_html("GLOBAL_DIRECT"),
-             "6,518 unmatched purchases (2.7% of gap)",
-             "Medium",
-             "Log af parameter; investigate partner exclusions"],
-            ["7",
-             "<strong>CIS foreign affiliate overwrite</strong> &mdash; last-click attribution loss "
-             "to competing affiliates (18.8% overwrite rate)",
-             "B",
-             _label_html("CIS_DIRECT"),
-             "4,489 unmatched purchases (1.9% of gap)",
-             "High",
-             "Same re-activation approach as Global"],
-            ["8",
-             "<strong>Legacy extension versions (&lt;3.1.0)</strong> &mdash; hub reach rates "
-             "of 3-19%",
-             "A",
-             _label_html("GLOBAL_DIRECT") + " " + _label_html("CIS_DIRECT"),
-             "~3,400 users with near-zero activation",
-             "High",
-             "Force-update or deprecate"],
-        ],
-        "All Root Causes &mdash; Ranked by Impact"
-    )
 
-    # ── Unexplained remainder ───────────────────────────────────────────
-    html += '<h2 id="unexplained">7. Unexplained Remainder</h2>\n'
-    html += build_unexplained_remainder()
+    html += '<h2 id="longitudinal">9. Longitudinal comparison</h2>\n'
+    html += longitudinal_section()
 
-    # ── Recommendations ─────────────────────────────────────────────────
-    html += '<h2 id="recs">8. Recommended Fixes</h2>\n'
-    html += build_recommendations()
+    html += '<h2 id="recs">10. Recommended fixes</h2>\n'
+    html += recommendations_section()
+
+    html += '<h2 id="repro">11. Reproducible code</h2>\n'
+    html += reproducible_code_section()
 
     html += f"""
 <hr>
-<p class="meta">
-End of report &nbsp;·&nbsp; Generated {now}<br>
-Pipeline: <code>analysis/extract.py</code>, <code>analysis/problem_a.py</code>,
-<code>analysis/problem_b.py</code>, <code>analysis/report.py</code> &nbsp;·&nbsp;
-Data in <code>cache/</code><br>
-Regional routing: <code>specs/domain/regional_routing.md</code> (UA = Global) &nbsp;·&nbsp;
-Attribution: <code>specs/domain/attribution.md</code>
-</p>
+<p class="meta">End of report · {REPORT_ID}</p>
 </main>
 </div>
 {_SIDEBAR_JS}
@@ -1157,11 +1131,15 @@ Attribution: <code>specs/domain/attribution.md</code>
 
 def run():
     results_a = _load_pkl("results_a")
-    results_b = _load_pkl("results_b")
+    results_b = _load_pkl("results_b", required=False) if PROBLEM_B_ENABLED else None
+    coverage  = _load_pkl("coverage", required=False)
 
-    html = build_report(results_a, results_b)
-
-    out_path = REPORTS_DIR / "report.html"
+    html = build_report(results_a, results_b, coverage)
+    # Organise by year/month of the A window end, per
+    # specs/workflows/recurring_reports.md ("Store all under reports/YYYY/MM/…")
+    out_dir = REPORTS_DIR / A_END.strftime("%Y") / A_END.strftime("%m")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{REPORT_ID}.html"
     with open(out_path, "w") as f:
         f.write(html)
     print(f"Report saved to {out_path}")

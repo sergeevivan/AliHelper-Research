@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AliHelper Research — pulse_2026-04-28_to_2026-05-04</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 15px; line-height: 1.65; color: #374151;
+  margin: 0; background: #fff;
+}
+a { color: #2563eb; text-decoration: none; }
+a:hover { text-decoration: underline; }
+code {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 12.5px; background: #f3f4f6; padding: 1px 5px;
+  border-radius: 3px; color: #1e40af;
+}
+em { color: #6b7280; font-style: normal; }
+ol, ul { margin: 8px 0 8px 0; padding-left: 22px; }
+li { margin: 5px 0; }
+hr { border: none; border-top: 1px solid #e5e7eb; margin: 32px 0; }
+
+.layout { display: flex; min-height: 100vh; }
+.sidebar {
+  width: 240px; flex-shrink: 0;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  background: #f9fafb; border-right: 1px solid #e5e7eb;
+  padding: 24px 0;
+}
+.sidebar-logo {
+  padding: 0 18px 16px; font-weight: 700; font-size: 14px;
+  color: #1e40af; border-bottom: 1px solid #e5e7eb; margin-bottom: 12px;
+}
+.sidebar nav a {
+  display: block; padding: 5px 18px; font-size: 13px;
+  color: #6b7280; border-left: 3px solid transparent;
+  transition: all .15s;
+}
+.sidebar nav a:hover, .sidebar nav a.active {
+  color: #2563eb; background: #eff6ff;
+  border-left-color: #2563eb; text-decoration: none;
+}
+.main { flex: 1; max-width: 1160px; padding: 32px 48px; overflow-x: hidden; }
+
+h1 {
+  font-size: 26px; font-weight: 700; color: #111827;
+  border-bottom: 3px solid #2563eb; padding-bottom: 10px; margin-top: 0;
+}
+h2 {
+  font-size: 20px; font-weight: 700; color: #1e40af;
+  margin-top: 48px; border-bottom: 2px solid #e5e7eb; padding-bottom: 6px;
+}
+h3 { font-size: 16px; font-weight: 600; color: #374151; margin-top: 28px; }
+h4, .tbl-caption {
+  font-size: 13px; font-weight: 600; color: #6b7280;
+  margin: 20px 0 6px; text-transform: uppercase; letter-spacing: .4px;
+}
+.meta { color: #9ca3af; font-size: 13px; margin-top: -8px; }
+
+.kpi-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(180px,1fr));
+  gap: 14px; margin: 20px 0 28px;
+}
+.kpi-card {
+  background: #f9fafb; border: 1px solid #e5e7eb;
+  border-radius: 10px; padding: 16px 18px; text-align: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06);
+}
+.kpi-value { font-size: 28px; font-weight: 800; line-height: 1.1; }
+.kpi-label { font-size: 12px; color: #6b7280; margin-top: 4px; }
+.kpi-good  { color: #059669; }
+.kpi-warn  { color: #d97706; }
+.kpi-bad   { color: #dc2626; }
+.kpi-neutral { color: #2563eb; }
+
+.callout {
+  display: flex; gap: 12px; align-items: flex-start;
+  padding: 13px 16px; margin: 14px 0;
+  border-radius: 6px; border-left: 4px solid;
+  font-size: 14px;
+}
+.callout-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+.callout-critical { background:#fef2f2; border-color:#f87171; color:#7f1d1d; }
+.callout-warning  { background:#fffbeb; border-color:#fbbf24; color:#78350f; }
+.callout-info     { background:#eff6ff; border-color:#60a5fa; color:#1e3a8a; }
+.callout-finding  { background:#f0fdf4; border-color:#34d399; color:#14532d; }
+
+.lbl {
+  display: inline-block; padding: 2px 8px; border-radius: 99px;
+  font-size: 11.5px; font-weight: 700; font-family: monospace;
+  margin-right: 4px; letter-spacing: .2px;
+}
+.lbl-global        { background: #dbeafe; color: #1d4ed8; }
+.lbl-cis-direct    { background: #fef3c7; color: #92400e; }
+.lbl-cis-af        { background: #fed7aa; color: #9a3412; }
+.lbl-cis-utm       { background: #fde68a; color: #92400e; }
+.lbl-cis-partial   { background: #fef9c3; color: #854d0e; }
+.lbl-cis-proxy     { background: #e5e7eb; color: #374151; }
+.lbl-neutral       { background: #e5e7eb; color: #374151; }
+
+.tbl-wrap { overflow-x: auto; margin: 0 0 28px; border-radius: 8px;
+            border: 1px solid #e5e7eb; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+thead tr { background: #f3f4f6; }
+th {
+  text-align: left; padding: 9px 13px;
+  border-bottom: 2px solid #d1d5db;
+  font-weight: 600; font-size: 12.5px;
+  color: #374151; white-space: nowrap;
+  position: sticky; top: 0; background: #f3f4f6;
+}
+td { padding: 7px 13px; border-bottom: 1px solid #f3f4f6; vertical-align: top; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover td { background: #eff6ff; }
+tbody tr:nth-child(even) td { background: #fafafa; }
+tbody tr:nth-child(even):hover td { background: #eff6ff; }
+
+.rate-good { background: #d1fae5 !important; color: #065f46; font-weight: 600; }
+.rate-mid  { background: #fef3c7 !important; color: #78350f; font-weight: 600; }
+.rate-bad  { background: #fee2e2 !important; color: #7f1d1d; font-weight: 600; }
+
+.funnel-section { margin: 20px 0 28px; }
+.funnel-region-title {
+  font-size: 13px; font-weight: 700; color: #374151;
+  margin: 16px 0 8px; text-transform: uppercase; letter-spacing: .4px;
+}
+.funnel-bars { display: flex; flex-direction: column; gap: 7px; }
+.funnel-row { display: flex; align-items: center; gap: 10px; }
+.funnel-label { width: 220px; flex-shrink: 0; font-size: 13px; color: #4b5563; }
+.funnel-bar-wrap {
+  flex: 1; background: #f3f4f6; border-radius: 4px; height: 22px; overflow: hidden;
+}
+.funnel-bar { height: 100%; border-radius: 4px; transition: width .3s; min-width: 2px; }
+.bar-good    { background: #34d399; }
+.bar-mid     { background: #fbbf24; }
+.bar-bad     { background: #f87171; }
+.bar-neutral { background: #93c5fd; }
+.funnel-count { width: 80px; text-align: right; font-size: 13px;
+                font-weight: 600; color: #374151; }
+
+.rc-bar-wrap { width: 120px; background: #f3f4f6; border-radius: 3px; height: 10px; overflow: hidden; }
+.rc-bar { height: 100%; background: #6366f1; border-radius: 3px; }
+
+@media (max-width: 860px) {
+  .sidebar { display: none; }
+  .main { padding: 20px; }
+}
+</style>
+</head>
+<body>
+<div class="layout">
+
+<aside class="sidebar">
+  <div class="sidebar-logo">📊 AliHelper Research</div>
+  <nav><a href="#meta">1. Metadata</a>
+<a href="#coverage">2. Coverage</a>
+<a href="#defs">3. Definitions</a>
+<a href="#caveats">4. Data quality</a>
+<a href="#pa">5. Problem A</a>
+<a href="#ranked">7. Ranked root causes</a>
+<a href="#unexplained">8. Unexplained remainder</a>
+<a href="#longitudinal">9. Longitudinal</a>
+<a href="#recs">10. Recommendations</a>
+<a href="#repro">11. Reproducible code</a></nav>
+</aside>
+
+<main class="main">
+<h1>AliHelper — Root-Cause Research Report</h1>
+<p class="meta">
+  Generated 2026-05-11 14:37 UTC &nbsp;·&nbsp;
+  Mode <code>pulse</code> &nbsp;·&nbsp; Report id <code>pulse_2026-04-28_to_2026-05-04</code>
+</p>
+
+<h2 id="meta">1. Report metadata</h2>
+<h4 class='tbl-caption'>Report metadata</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>Field</th><th>Value</th></tr></thead>
+<tbody>
+<tr><td>report_id</td><td>pulse_2026-04-28_to_2026-05-04</td></tr>
+<tr><td>report_mode</td><td>pulse</td></tr>
+<tr><td>problem_a_period_utc</td><td>2026-04-28 → 2026-05-04</td></tr>
+<tr><td>problem_b_period_utc</td><td>n/a (pulse mode)</td></tr>
+<tr><td>generated_at_utc</td><td>2026-05-11 14:37 UTC</td></tr>
+<tr><td>baseline_report_id</td><td>—</td></tr>
+<tr><td>previous_same_type_report_id</td><td>—</td></tr>
+</tbody></table></div>
+
+
+<h2 id="coverage">2. Coverage snapshot</h2>
+<h4 class='tbl-caption'>New-field coverage</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>Instrumentation field</th><th>Present</th><th>Total</th><th>Coverage</th></tr></thead>
+<tbody>
+<tr><td>events.params (new query-param object)</td><td>1,046,378</td><td>1,125,733</td><td class="rate-good">93.0%</td></tr>
+<tr><td>clients.build_app (active in window)</td><td>32,418</td><td>33,254</td><td class="rate-good">97.5%</td></tr>
+</tbody></table></div>
+<h4 class='tbl-caption'>build_app breakdown</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>build_app value</th><th>Clients</th></tr></thead>
+<tbody>
+<tr><td>chrome</td><td>25,109</td></tr>
+<tr><td>firefox</td><td>5,000</td></tr>
+<tr><td>edge</td><td>2,309</td></tr>
+<tr><td><missing></td><td>836</td></tr>
+</tbody></table></div>
+<h4 class='tbl-caption'>Attribution source tiers — where each param came from (sampled 200,000 of 1,125,733 events)</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>param</th><th>events.params</th><th>querySk</th><th>url_parse</th><th>none</th></tr></thead>
+<tbody>
+<tr><td>sk</td><td>26,056 (13.0%)</td><td>173,944 (87.0%)</td><td>0 (0.0%)</td><td>0 (0.0%)</td></tr>
+<tr><td>af</td><td>8,272 (4.1%)</td><td>—</td><td>14 (0.0%)</td><td>191,714 (95.9%)</td></tr>
+<tr><td>utm</td><td>9,613 (4.8%)</td><td>—</td><td>21 (0.0%)</td><td>190,366 (95.2%)</td></tr>
+</tbody></table></div>
+<h4 class='tbl-caption'>Flow lineage split</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>lineage</th><th>clients</th><th>share</th></tr></thead>
+<tbody>
+<tr><td>dogi</td><td>25,709</td><td class="rate-mid">77.3%</td></tr>
+<tr><td>auto_redirect</td><td>7,479</td><td class="rate-bad">22.5%</td></tr>
+<tr><td>edge_ambiguous_build</td><td>64</td><td class="rate-bad">0.2%</td></tr>
+<tr><td>unknown_build</td><td>2</td><td class="rate-bad">0.0%</td></tr>
+</tbody></table></div>
+
+
+<h2 id="defs">3. Definitions</h2>
+
+<ol>
+<li><strong>Canonical user identity:</strong> <code>guests._id</code> =
+    Mixpanel <code>$user_id</code>. Join events / clients / guestStateHistory
+    via <code>guest_id</code>. <em>Never</em> use <code>clients._id</code>.</li>
+<li><strong>Global direct affiliate state (sk-based):</strong> events whose
+    attribution is an AliHelper-owned <code>sk</code> from the whitelist.
+    Source priority: <code>events.params.sk</code> →
+    <code>events.payload.querySk</code> → parse <code>events.payload.url</code>.</li>
+<li><strong>CIS direct affiliate state (two mutually exclusive URL patterns
+    on <code>aliexpress.ru</code>):</strong>
+    Pattern A <code>af=*_7685</code> (+ typically <code>utm_medium=cpa</code>);
+    Pattern B <code>utm_source=aerkol</code> + <code>utm_medium=cpa</code> +
+    <code>utm_campaign=*_7685</code>. Source priority:
+    <code>events.params.&lt;name&gt;</code> → parse URL.</li>
+<li><strong>CIS proxy-return fallback:</strong> when no owned CIS marker is
+    present but an <code>aliexpress.ru</code> event lands within
+    ≤120 s after an <code>Affiliate Click</code> inside the 72 h window — label
+    <code>CIS_PROXY</code>. Weakest evidence tier; never overrides a direct
+    marker.</li>
+<li><strong>Eligible opportunity:</strong> product pages only —
+    DOGI: page carries <code>productId</code>; auto-redirect: URL matches
+    <code>clients.checkListUrls</code>. Homepages / category pages do not
+    generate affiliate activation.</li>
+<li><strong>Attribution window:</strong> 72 h before
+    <code>Purchase Completed</code>, server-side <code>events</code> only.
+    Client-side <code>last_sk</code> / <code>last_af</code> /
+    <code>last_utm_*</code> have no 72 h limit and are NOT authoritative.</li>
+<li><strong>Client enrichment rule:</strong> use <code>clients</code> only
+    to add context (browser, user_agent, os, city, country, client_version)
+    to <code>events</code>. Treat as client-state history, not a canonical
+    user table.</li>
+<li><strong>Global overwrite rule:</strong> within the 72 h window, a foreign
+    <code>sk</code> OR a foreign <code>af</code> (third-party CIS marker on
+    a Global AliExpress host) observed <em>after</em> the latest owned
+    <code>sk</code> timestamp counts as overwrite.</li>
+<li><strong>CIS overwrite rule:</strong> within the 72 h window, a foreign
+    <code>af</code> or foreign <code>utm_*</code> observed <em>after</em>
+    the latest owned CIS marker counts as overwrite. <code>foreign_af_after</code>
+    and <code>foreign_utm_after</code> are tracked separately.</li>
+<li><strong>Mature purchase cohort:</strong> for Problem B (deep mode), the
+    window ends 7 days before today so postbacks have a chance to arrive
+    (post­backs can lag 3–7 days). See
+    <code>specs/workflows/recurring_reports.md</code>.</li>
+<li><strong>Purchase matching rule:</strong> same user, ±10 min proximity
+    (no <code>order_id</code> available). Sensitivity run at 5 / 10 / 15 / 20 min.</li>
+<li><strong>Global direct-return evidence rule:</strong> an owned <code>sk</code>
+    marker (by source priority above) inside the 72 h window.</li>
+<li><strong>CIS direct-return evidence rule (UTM in URL):</strong> Pattern A
+    <code>af=*_7685</code> or Pattern B full UTM triple
+    (<code>aerkol</code> + <code>cpa</code> + <code>*_7685</code>) inside
+    the 72 h window.</li>
+<li><strong>CIS proxy-return rule:</strong> fallback ≤120 s; used only when
+    no direct CIS marker is present.</li>
+<li><strong>Latest delivered config rule:</strong> for any enrichment that
+    depends on config (hub domain, cashback list, checkListUrls), use the
+    most recent <code>guestStateHistory</code> entry before the event
+    timestamp — never the live config.</li>
+<li><strong>Routing-based regional split:</strong> classify by URL domain —
+    <code>aliexpress.ru</code> = CIS, all other AliExpress hosts = Global.
+    <em>UA is routed as Global/Portals</em>, not CIS. An EPN suffix
+    <code>_7685</code> on a Global host is an anomaly, not a CIS classification.</li>
+</ol>
+
+<h3>Labels</h3>
+<p>Every finding carries one of:
+<code>GLOBAL_DIRECT</code> / <code>CIS_DIRECT_AF</code> /
+<code>CIS_DIRECT_UTM</code> / <code>CIS_PARTIAL_UTM</code> / <code>CIS_PROXY</code>.
+<code>CIS_DIRECT_AF</code> + <code>CIS_DIRECT_UTM</code> may be aggregated
+as <code>CIS_DIRECT</code> in summaries.</p>
+
+
+<h2 id="caveats">4. Data-quality caveats</h2>
+
+<ul>
+<li><strong>Cashback observability:</strong> client-side only; partial evidence via
+    <code>Purchase Completed.cashback_list</code> (current session only).</li>
+<li><strong>Auto-redirect attempts:</strong> no backend log; reconstructed from eligible
+    visits + lineage + cooldown + config + later signals.</li>
+<li><strong>noLogUrls exclusions:</strong> absence of events near checkout is not
+    necessarily absence of activity.</li>
+<li><strong>Short-window (pulse) limitations:</strong> Problem B is NOT reliable on 7 d —
+    postbacks lag 3–7 d, per-reason-code volume too thin. Monthly deep only.</li>
+<li><strong>New-field coverage:</strong> <code>events.params</code>, <code>build_app</code>,
+    and <code>Purchase Completed</code> last_* fields rolled out mid-April 2026 — coverage
+    is near zero in earlier windows.</li>
+<li><strong>PC client-side fields:</strong> <code>last_sk</code> / <code>last_af</code> /
+    <code>last_utm_*</code> have no 72 h limit and are NOT authoritative. Used only for
+    validation (B6) / coverage.</li>
+<li><strong>MongoDB indexing:</strong> <code>events</code> has no index on <code>created</code> —
+    use <code>_id</code>-based filtering + <code>allowDiskUse=true</code>.</li>
+<li><strong>Mixpanel timezone:</strong> <code>Europe/Moscow</code> (UTC+3) — explicit
+    conversion for all joins.</li>
+</ul>
+
+
+<h2 id="pa">5. Problem A — Missing Affiliate Click</h2>
+<div class="kpi-grid"><div class="kpi-card"><div class="kpi-value kpi-neutral">33,578</div><div class="kpi-label">Total users</div></div><div class="kpi-card"><div class="kpi-value kpi-good">31,950</div><div class="kpi-label">Eligible</div></div><div class="kpi-card"><div class="kpi-value kpi-warn">21,294 (63%)</div><div class="kpi-label">Reached hub</div></div><div class="kpi-card"><div class="kpi-value kpi-good">20,124 (95%)</div><div class="kpi-label">Any return</div></div></div>
+<div class="funnel-section"><h4 class="funnel-region-title">Global (24,611 users)</h4><div class="funnel-bars"><div class="funnel-row"><div class="funnel-label">Total users</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-neutral" style="width:100.0%"></div></div><div class="funnel-count">24,611</div></div><div class="funnel-row"><div class="funnel-label">Eligible (product pages)</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-good" style="width:95.1%"></div></div><div class="funnel-count">23,396</div></div><div class="funnel-row"><div class="funnel-label">+ usable config</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-good" style="width:94.9%"></div></div><div class="funnel-count">23,368</div></div><div class="funnel-row"><div class="funnel-label">Reached hub (AC)</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-mid" style="width:65.8%"></div></div><div class="funnel-count">16,197</div></div><div class="funnel-row"><div class="funnel-label">Direct return signal</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-good" style="width:62.6%"></div></div><div class="funnel-count">15,409</div></div><div class="funnel-row"><div class="funnel-label">Any return (direct+proxy)</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-good" style="width:62.6%"></div></div><div class="funnel-count">15,409</div></div></div><h4 class="funnel-region-title">CIS (8,967 users)</h4><div class="funnel-bars"><div class="funnel-row"><div class="funnel-label">Total users</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-neutral" style="width:100.0%"></div></div><div class="funnel-count">8,967</div></div><div class="funnel-row"><div class="funnel-label">Eligible (product pages)</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-good" style="width:95.4%"></div></div><div class="funnel-count">8,554</div></div><div class="funnel-row"><div class="funnel-label">+ usable config</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-good" style="width:95.3%"></div></div><div class="funnel-count">8,545</div></div><div class="funnel-row"><div class="funnel-label">Reached hub (AC)</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-mid" style="width:56.8%"></div></div><div class="funnel-count">5,097</div></div><div class="funnel-row"><div class="funnel-label">Direct return signal</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-good" style="width:48.8%"></div></div><div class="funnel-count">4,373</div></div><div class="funnel-row"><div class="funnel-label">Any return (direct+proxy)</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-good" style="width:52.6%"></div></div><div class="funnel-count">4,715</div></div></div><h4 class="funnel-region-title">All (33,578 users)</h4><div class="funnel-bars"><div class="funnel-row"><div class="funnel-label">Total users</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-neutral" style="width:100.0%"></div></div><div class="funnel-count">33,578</div></div><div class="funnel-row"><div class="funnel-label">Eligible (product pages)</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-good" style="width:95.2%"></div></div><div class="funnel-count">31,950</div></div><div class="funnel-row"><div class="funnel-label">+ usable config</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-good" style="width:95.0%"></div></div><div class="funnel-count">31,913</div></div><div class="funnel-row"><div class="funnel-label">Reached hub (AC)</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-mid" style="width:63.4%"></div></div><div class="funnel-count">21,294</div></div><div class="funnel-row"><div class="funnel-label">Direct return signal</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-good" style="width:58.9%"></div></div><div class="funnel-count">19,782</div></div><div class="funnel-row"><div class="funnel-label">Any return (direct+proxy)</div><div class="funnel-bar-wrap"><div class="funnel-bar bar-good" style="width:59.9%"></div></div><div class="funnel-count">20,124</div></div></div></div>
+<h4 class='tbl-caption'>Funnel — numeric detail</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>Step</th><th>Global</th><th>CIS</th><th>All</th></tr></thead>
+<tbody>
+<tr><td>1. Total users</td><td>24,611</td><td>8,967</td><td>33,578</td></tr>
+<tr><td>2. Eligible (product pages)</td><td>23,396</td><td>8,554</td><td>31,950</td></tr>
+<tr><td>3. + usable config</td><td>23,368</td><td>8,545</td><td>31,913</td></tr>
+<tr><td>4. Reached hub (Affiliate Click)</td><td>16,197</td><td>5,097</td><td>21,294</td></tr>
+<tr><td>5. Direct return signal</td><td>15,409</td><td>4,373</td><td>19,782</td></tr>
+<tr><td>6. Any return (direct+proxy)</td><td>15,409</td><td>4,715</td><td>20,124</td></tr>
+<tr><td><em>Eligible rate</em></td><td class="rate-good">95.1%</td><td class="rate-good">95.4%</td><td class="rate-good">95.2%</td></tr>
+<tr><td><em>Hub reach rate (of eligible)</em></td><td class="rate-mid">69.2%</td><td class="rate-mid">59.6%</td><td class="rate-mid">66.6%</td></tr>
+<tr><td><em>Return rate (of hub)</em></td><td class="rate-good">95.1%</td><td class="rate-good">92.5%</td><td class="rate-good">94.5%</td></tr>
+</tbody></table></div>
+<h4 class='tbl-caption'>Label breakdown (per-user primary label)</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>Primary label</th><th>Users</th></tr></thead>
+<tbody>
+<tr><td><span class="lbl lbl-global">GLOBAL_DIRECT</span></td><td>15,409</td></tr>
+<tr><td><span class="lbl lbl-neutral">nan</span></td><td>13,796</td></tr>
+<tr><td><span class="lbl lbl-cis-af">CIS_DIRECT_AF</span></td><td>4,151</td></tr>
+<tr><td><span class="lbl lbl-cis-utm">CIS_DIRECT_UTM</span></td><td>222</td></tr>
+</tbody></table></div>
+<h3>A5 — Missing Mixpanel click tracking</h3>
+<p><span class="lbl lbl-global">GLOBAL_DIRECT</span> Global: 298 users with our sk but no Affiliate Click<br><span class="lbl lbl-cis-af">CIS_DIRECT_AF</span><span class="lbl lbl-cis-utm">CIS_DIRECT_UTM</span> CIS: 137 users with our af/UTM but no Affiliate Click</p>
+<h3>A6 — Hub reached, no return</h3>
+<p><span class="lbl lbl-global">GLOBAL_DIRECT</span> Global: 1,086 users reached hub, no owned sk<br><span class="lbl lbl-cis-af">CIS_DIRECT_AF</span><span class="lbl lbl-cis-utm">CIS_DIRECT_UTM</span> CIS: 519 users reached hub, no af/UTM or proxy return</p>
+<h4 class='tbl-caption'>Problem A — by region</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>region</th><th>users</th><th>eligible</th><th>has_config</th><th>reached_hub</th><th>has_return</th><th>elig_rate</th><th>hub_rate</th><th>return_rate</th></tr></thead>
+<tbody>
+<tr><td>Global</td><td>26,137</td><td>24,835</td><td>26,096</td><td>17,169</td><td>16,123</td><td class="rate-good">95.0</td><td class="rate-mid">69.1</td><td class="rate-good">93.9</td></tr>
+<tr><td>CIS</td><td>7,441</td><td>7,115</td><td>7,420</td><td>4,125</td><td>4,001</td><td class="rate-good">95.6</td><td class="rate-mid">58.0</td><td class="rate-good">97.0</td></tr>
+</tbody></table></div>
+<h4 class='tbl-caption'>Problem A — by browser</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>browser_fam</th><th>users</th><th>eligible</th><th>has_config</th><th>reached_hub</th><th>has_return</th><th>elig_rate</th><th>hub_rate</th><th>return_rate</th></tr></thead>
+<tbody>
+<tr><td>chrome</td><td>21,075</td><td>21,073</td><td>21,054</td><td>12,657</td><td>12,023</td><td class="rate-good">100.0</td><td class="rate-mid">60.1</td><td class="rate-good">95.0</td></tr>
+<tr><td>firefox</td><td>5,171</td><td>4,332</td><td>5,138</td><td>4,300</td><td>3,874</td><td class="rate-good">83.8</td><td class="rate-good">99.3</td><td class="rate-good">90.1</td></tr>
+<tr><td>edge</td><td>2,888</td><td>2,424</td><td>2,884</td><td>1,870</td><td>1,837</td><td class="rate-good">83.9</td><td class="rate-mid">77.1</td><td class="rate-good">98.2</td></tr>
+<tr><td>yandex</td><td>2,835</td><td>2,835</td><td>2,832</td><td>1,547</td><td>1,504</td><td class="rate-good">100.0</td><td class="rate-mid">54.6</td><td class="rate-good">97.2</td></tr>
+<tr><td>opera</td><td>1,242</td><td>1,242</td><td>1,242</td><td class="rate-good">729</td><td class="rate-good">700</td><td class="rate-good">100.0</td><td class="rate-mid">58.7</td><td class="rate-good">96.0</td></tr>
+<tr><td>other</td><td>366</td><td class="rate-bad">43</td><td>365</td><td class="rate-good">190</td><td class="rate-good">185</td><td class="rate-bad">11.7</td><td class="rate-good">441.9</td><td class="rate-good">97.4</td></tr>
+<tr><td>safari</td><td>1</td><td class="rate-bad">1</td><td>1</td><td class="rate-bad">1</td><td class="rate-bad">1</td><td class="rate-good">100.0</td><td class="rate-good">100.0</td><td class="rate-good">100.0</td></tr>
+</tbody></table></div>
+<h4 class='tbl-caption'>Problem A — by lineage</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>lineage</th><th>users</th><th>eligible</th><th>has_config</th><th>reached_hub</th><th>has_return</th><th>elig_rate</th><th>hub_rate</th><th>return_rate</th></tr></thead>
+<tbody>
+<tr><td>dogi</td><td>25,716</td><td>25,716</td><td>25,692</td><td>14,982</td><td>14,302</td><td class="rate-good">100.0</td><td class="rate-mid">58.3</td><td class="rate-good">95.5</td></tr>
+<tr><td>auto_redirect</td><td>7,478</td><td>6,234</td><td>7,441</td><td>6,117</td><td>5,625</td><td class="rate-good">83.4</td><td class="rate-good">98.1</td><td class="rate-good">92.0</td></tr>
+<tr><td>unknown_build</td><td>323</td><td class="rate-bad">0</td><td>322</td><td class="rate-good">159</td><td class="rate-good">156</td><td class="rate-bad">0.0</td><td class="rate-bad">0.0</td><td class="rate-good">98.1</td></tr>
+<tr><td>edge_ambiguous_build</td><td>61</td><td class="rate-bad">0</td><td>61</td><td class="rate-bad">36</td><td class="rate-bad">41</td><td class="rate-bad">0.0</td><td class="rate-bad">0.0</td><td class="rate-good">113.9</td></tr>
+</tbody></table></div>
+<h4 class='tbl-caption'>Problem A — by country</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>country</th><th>users</th><th>eligible</th><th>has_config</th><th>reached_hub</th><th>has_return</th><th>elig_rate</th><th>hub_rate</th><th>return_rate</th></tr></thead>
+<tbody>
+<tr><td>RU</td><td>6,153</td><td>5,889</td><td>6,133</td><td>3,432</td><td>3,321</td><td class="rate-good">95.7</td><td class="rate-mid">58.3</td><td class="rate-good">96.8</td></tr>
+<tr><td>UA</td><td>1,908</td><td>1,867</td><td>1,905</td><td>1,219</td><td>1,096</td><td class="rate-good">97.9</td><td class="rate-mid">65.3</td><td class="rate-good">89.9</td></tr>
+<tr><td>ES</td><td>1,861</td><td>1,794</td><td>1,860</td><td>1,288</td><td>1,211</td><td class="rate-good">96.4</td><td class="rate-mid">71.8</td><td class="rate-good">94.0</td></tr>
+<tr><td>CL</td><td>1,389</td><td>1,343</td><td>1,388</td><td class="rate-good">928</td><td class="rate-good">896</td><td class="rate-good">96.7</td><td class="rate-mid">69.1</td><td class="rate-good">96.6</td></tr>
+<tr><td>BR</td><td>1,373</td><td>1,342</td><td>1,371</td><td class="rate-good">819</td><td class="rate-good">777</td><td class="rate-good">97.7</td><td class="rate-mid">61.0</td><td class="rate-good">94.9</td></tr>
+<tr><td>MX</td><td>1,290</td><td>1,231</td><td>1,290</td><td class="rate-good">818</td><td class="rate-good">774</td><td class="rate-good">95.4</td><td class="rate-mid">66.5</td><td class="rate-good">94.6</td></tr>
+<tr><td>PL</td><td>1,205</td><td>1,161</td><td>1,205</td><td class="rate-good">851</td><td class="rate-good">809</td><td class="rate-good">96.3</td><td class="rate-mid">73.3</td><td class="rate-good">95.1</td></tr>
+<tr><td>FR</td><td>1,055</td><td class="rate-good">992</td><td>1,054</td><td class="rate-good">732</td><td class="rate-good">695</td><td class="rate-good">94.0</td><td class="rate-mid">73.8</td><td class="rate-good">94.9</td></tr>
+<tr><td>PK</td><td>1,049</td><td>1,043</td><td>1,045</td><td class="rate-good">691</td><td class="rate-good">693</td><td class="rate-good">99.4</td><td class="rate-mid">66.3</td><td class="rate-good">100.3</td></tr>
+<tr><td>IL</td><td>1,000</td><td class="rate-good">981</td><td>999</td><td class="rate-good">662</td><td class="rate-good">592</td><td class="rate-good">98.1</td><td class="rate-mid">67.5</td><td class="rate-good">89.4</td></tr>
+<tr><td>IT</td><td>877</td><td class="rate-good">832</td><td>877</td><td class="rate-good">623</td><td class="rate-good">575</td><td class="rate-good">94.9</td><td class="rate-mid">74.9</td><td class="rate-good">92.3</td></tr>
+<tr><td>DE</td><td>855</td><td class="rate-good">808</td><td>852</td><td class="rate-good">608</td><td class="rate-good">546</td><td class="rate-good">94.5</td><td class="rate-mid">75.2</td><td class="rate-good">89.8</td></tr>
+<tr><td>PE</td><td>817</td><td class="rate-good">793</td><td>816</td><td class="rate-good">539</td><td class="rate-good">524</td><td class="rate-good">97.1</td><td class="rate-mid">68.0</td><td class="rate-good">97.2</td></tr>
+<tr><td>US</td><td>792</td><td class="rate-good">762</td><td>789</td><td class="rate-good">539</td><td class="rate-good">506</td><td class="rate-good">96.2</td><td class="rate-mid">70.7</td><td class="rate-good">93.9</td></tr>
+<tr><td>PT</td><td>631</td><td class="rate-good">605</td><td>631</td><td class="rate-good">409</td><td class="rate-good">389</td><td class="rate-good">95.9</td><td class="rate-mid">67.6</td><td class="rate-good">95.1</td></tr>
+<tr><td>BY</td><td>597</td><td class="rate-good">564</td><td>597</td><td class="rate-good">306</td><td class="rate-good">299</td><td class="rate-good">94.5</td><td class="rate-mid">54.3</td><td class="rate-good">97.7</td></tr>
+<tr><td>GB</td><td>532</td><td class="rate-good">516</td><td>532</td><td class="rate-good">366</td><td class="rate-good">354</td><td class="rate-good">97.0</td><td class="rate-mid">70.9</td><td class="rate-good">96.7</td></tr>
+<tr><td>NL</td><td>518</td><td class="rate-good">497</td><td>517</td><td class="rate-good">332</td><td class="rate-good">301</td><td class="rate-good">95.9</td><td class="rate-mid">66.8</td><td class="rate-good">90.7</td></tr>
+<tr><td>CO</td><td>491</td><td class="rate-good">470</td><td>491</td><td class="rate-good">325</td><td class="rate-good">315</td><td class="rate-good">95.7</td><td class="rate-mid">69.1</td><td class="rate-good">96.9</td></tr>
+<tr><td>LV</td><td>449</td><td class="rate-good">434</td><td>448</td><td class="rate-good">301</td><td class="rate-good">272</td><td class="rate-good">96.7</td><td class="rate-mid">69.4</td><td class="rate-good">90.4</td></tr>
+</tbody></table></div>
+<h4 class='tbl-caption'>Problem A — by hub</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>cfg_domain</th><th>users</th><th>eligible</th><th>has_config</th><th>reached_hub</th><th>has_return</th><th>elig_rate</th><th>hub_rate</th><th>return_rate</th></tr></thead>
+<tbody>
+<tr><td>tools-tops.com</td><td>8,857</td><td>8,430</td><td>8,857</td><td>5,451</td><td>5,204</td><td class="rate-good">95.2</td><td class="rate-mid">64.7</td><td class="rate-good">95.5</td></tr>
+<tr><td>market-tops.com</td><td>8,738</td><td>8,309</td><td>8,738</td><td>5,288</td><td>5,049</td><td class="rate-good">95.1</td><td class="rate-mid">63.6</td><td class="rate-good">95.5</td></tr>
+<tr><td>discount-tops.net</td><td>7,991</td><td>7,618</td><td>7,991</td><td>5,300</td><td>4,968</td><td class="rate-good">95.3</td><td class="rate-mid">69.6</td><td class="rate-good">93.7</td></tr>
+<tr><td>stock-tops.com</td><td>7,930</td><td>7,556</td><td>7,930</td><td>5,247</td><td>4,895</td><td class="rate-good">95.3</td><td class="rate-mid">69.4</td><td class="rate-good">93.3</td></tr>
+<tr><td></td><td>62</td><td class="rate-bad">37</td><td>0</td><td class="rate-bad">8</td><td class="rate-bad">8</td><td class="rate-mid">59.7</td><td class="rate-bad">21.6</td><td class="rate-good">100.0</td></tr>
+</tbody></table></div>
+<h4 class='tbl-caption'>Problem A — by version</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>client_version</th><th>users</th><th>eligible</th><th>has_config</th><th>reached_hub</th><th>has_return</th><th>elig_rate</th><th>hub_rate</th><th>return_rate</th></tr></thead>
+<tbody>
+<tr><td>3.1.4</td><td>24,644</td><td>23,744</td><td>24,627</td><td>16,189</td><td>15,173</td><td class="rate-good">96.3</td><td class="rate-mid">68.2</td><td class="rate-good">93.7</td></tr>
+<tr><td>3.1.3</td><td>7,808</td><td>7,501</td><td>7,802</td><td>4,547</td><td>4,402</td><td class="rate-good">96.1</td><td class="rate-mid">60.6</td><td class="rate-good">96.8</td></tr>
+<tr><td>nan</td><td>321</td><td class="rate-bad">0</td><td>320</td><td class="rate-good">158</td><td class="rate-good">155</td><td class="rate-bad">0.0</td><td class="rate-bad">0.0</td><td class="rate-good">98.1</td></tr>
+<tr><td>3.1.2</td><td>262</td><td class="rate-good">238</td><td>261</td><td class="rate-good">153</td><td class="rate-good">156</td><td class="rate-good">90.8</td><td class="rate-mid">64.3</td><td class="rate-good">102.0</td></tr>
+<tr><td>3.1.0</td><td>201</td><td class="rate-good">177</td><td>200</td><td class="rate-good">87</td><td class="rate-good">88</td><td class="rate-good">88.1</td><td class="rate-bad">49.2</td><td class="rate-good">101.1</td></tr>
+<tr><td>3.1.1</td><td>90</td><td class="rate-good">83</td><td>90</td><td class="rate-mid">57</td><td class="rate-mid">57</td><td class="rate-good">92.2</td><td class="rate-mid">68.7</td><td class="rate-good">100.0</td></tr>
+<tr><td>3.0.8</td><td>52</td><td class="rate-bad">46</td><td>50</td><td class="rate-bad">24</td><td class="rate-bad">25</td><td class="rate-good">88.5</td><td class="rate-mid">52.2</td><td class="rate-good">104.2</td></tr>
+<tr><td>3.0.10</td><td>31</td><td class="rate-bad">28</td><td>31</td><td class="rate-bad">19</td><td class="rate-bad">18</td><td class="rate-good">90.3</td><td class="rate-mid">67.9</td><td class="rate-good">94.7</td></tr>
+<tr><td>3.0.5</td><td>18</td><td class="rate-bad">18</td><td>18</td><td class="rate-bad">5</td><td class="rate-bad">5</td><td class="rate-good">100.0</td><td class="rate-bad">27.8</td><td class="rate-good">100.0</td></tr>
+<tr><td>3.0.7</td><td>14</td><td class="rate-bad">11</td><td>14</td><td class="rate-bad">6</td><td class="rate-bad">5</td><td class="rate-mid">78.6</td><td class="rate-mid">54.5</td><td class="rate-good">83.3</td></tr>
+<tr><td>2.30.8</td><td>13</td><td class="rate-bad">13</td><td>13</td><td class="rate-bad">5</td><td class="rate-bad">4</td><td class="rate-good">100.0</td><td class="rate-bad">38.5</td><td class="rate-good">80.0</td></tr>
+<tr><td>3.0.4</td><td>13</td><td class="rate-bad">12</td><td>13</td><td class="rate-bad">4</td><td class="rate-bad">2</td><td class="rate-good">92.3</td><td class="rate-bad">33.3</td><td class="rate-mid">50.0</td></tr>
+<tr><td></td><td>13</td><td class="rate-bad">2</td><td>1</td><td class="rate-bad">0</td><td class="rate-bad">0</td><td class="rate-bad">15.4</td><td class="rate-bad">0.0</td><td class="rate-bad">0.0</td></tr>
+<tr><td>3.0.2</td><td>10</td><td class="rate-bad">8</td><td>10</td><td class="rate-bad">5</td><td class="rate-bad">4</td><td class="rate-good">80.0</td><td class="rate-mid">62.5</td><td class="rate-good">80.0</td></tr>
+<tr><td>3.0.6</td><td>8</td><td class="rate-bad">5</td><td>8</td><td class="rate-bad">7</td><td class="rate-bad">7</td><td class="rate-mid">62.5</td><td class="rate-good">140.0</td><td class="rate-good">100.0</td></tr>
+<tr><td>2.26.12</td><td>7</td><td class="rate-bad">6</td><td>1</td><td class="rate-bad">1</td><td class="rate-bad">1</td><td class="rate-good">85.7</td><td class="rate-bad">16.7</td><td class="rate-good">100.0</td></tr>
+<tr><td>3.0.9</td><td>7</td><td class="rate-bad">7</td><td>7</td><td class="rate-bad">4</td><td class="rate-bad">3</td><td class="rate-good">100.0</td><td class="rate-mid">57.1</td><td class="rate-mid">75.0</td></tr>
+<tr><td>3.0.3</td><td>6</td><td class="rate-bad">6</td><td>6</td><td class="rate-bad">2</td><td class="rate-bad">2</td><td class="rate-good">100.0</td><td class="rate-bad">33.3</td><td class="rate-good">100.0</td></tr>
+<tr><td>2.30.7</td><td>6</td><td class="rate-bad">6</td><td>6</td><td class="rate-bad">1</td><td class="rate-bad">2</td><td class="rate-good">100.0</td><td class="rate-bad">16.7</td><td class="rate-good">200.0</td></tr>
+<tr><td>2.28.5</td><td>4</td><td class="rate-bad">1</td><td>1</td><td class="rate-bad">0</td><td class="rate-bad">0</td><td class="rate-bad">25.0</td><td class="rate-bad">0.0</td><td class="rate-bad">0.0</td></tr>
+</tbody></table></div>
+<h4 class='tbl-caption'>Problem A — by build_app</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>build_app</th><th>users</th><th>eligible</th><th>has_config</th><th>reached_hub</th><th>has_return</th><th>elig_rate</th><th>hub_rate</th><th>return_rate</th></tr></thead>
+<tbody>
+<tr><td>chrome</td><td>25,130</td><td>25,130</td><td>25,117</td><td>14,723</td><td>14,043</td><td class="rate-good">100.0</td><td class="rate-mid">58.6</td><td class="rate-good">95.4</td></tr>
+<tr><td>firefox</td><td>5,006</td><td>4,205</td><td>5,001</td><td>4,190</td><td>3,773</td><td class="rate-good">84.0</td><td class="rate-good">99.6</td><td class="rate-good">90.0</td></tr>
+<tr><td>edge</td><td>2,306</td><td>1,901</td><td>2,302</td><td>1,816</td><td>1,750</td><td class="rate-good">82.4</td><td class="rate-good">95.5</td><td class="rate-good">96.4</td></tr>
+<tr><td>nan</td><td>1,136</td><td class="rate-good">714</td><td>1,096</td><td class="rate-good">565</td><td class="rate-good">558</td><td class="rate-mid">62.9</td><td class="rate-mid">79.1</td><td class="rate-good">98.8</td></tr>
+</tbody></table></div>
+<h4 class='tbl-caption'>Problem A — by subtype</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>dominant_subtype</th><th>users</th><th>eligible</th><th>has_config</th><th>reached_hub</th><th>has_return</th><th>elig_rate</th><th>hub_rate</th><th>return_rate</th></tr></thead>
+<tbody>
+<tr><td>item</td><td>25,794</td><td>25,573</td><td>25,766</td><td>19,512</td><td>18,777</td><td class="rate-good">99.1</td><td class="rate-mid">76.3</td><td class="rate-good">96.2</td></tr>
+<tr><td>none</td><td>5,679</td><td>4,292</td><td>5,645</td><td class="rate-good">510</td><td class="rate-good">205</td><td class="rate-mid">75.6</td><td class="rate-bad">11.9</td><td class="rate-bad">40.2</td></tr>
+<tr><td>ssr</td><td>1,989</td><td>1,970</td><td>1,989</td><td>1,242</td><td>1,118</td><td class="rate-good">99.0</td><td class="rate-mid">63.0</td><td class="rate-good">90.0</td></tr>
+<tr><td>short_item</td><td>107</td><td class="rate-good">107</td><td>107</td><td class="rate-bad">29</td><td class="rate-bad">22</td><td class="rate-good">100.0</td><td class="rate-bad">27.1</td><td class="rate-mid">75.9</td></tr>
+<tr><td>item_pathed</td><td>9</td><td class="rate-bad">8</td><td>9</td><td class="rate-bad">1</td><td class="rate-bad">2</td><td class="rate-good">88.9</td><td class="rate-bad">12.5</td><td class="rate-good">200.0</td></tr>
+</tbody></table></div>
+<h4 class='tbl-caption'>Problem A — by multiclient</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>multiclient</th><th>users</th><th>eligible</th><th>has_config</th><th>reached_hub</th><th>has_return</th><th>elig_rate</th><th>hub_rate</th><th>return_rate</th></tr></thead>
+<tbody>
+<tr><td>multi</td><td>32,594</td><td>31,353</td><td>32,534</td><td>20,764</td><td>19,606</td><td class="rate-good">96.2</td><td class="rate-mid">66.2</td><td class="rate-good">94.4</td></tr>
+<tr><td>single</td><td>663</td><td class="rate-good">597</td><td>662</td><td class="rate-good">372</td><td class="rate-good">363</td><td class="rate-good">90.0</td><td class="rate-mid">62.3</td><td class="rate-good">97.6</td></tr>
+<tr><td>no_client</td><td>321</td><td class="rate-bad">0</td><td>320</td><td class="rate-good">158</td><td class="rate-good">155</td><td class="rate-bad">0.0</td><td class="rate-bad">0.0</td><td class="rate-good">98.1</td></tr>
+</tbody></table></div>
+<h3 id="a7">A7 — Non-Activator Deep-Dive</h3>
+<div class="kpi-grid"><div class="kpi-card"><div class="kpi-value kpi-warn">12,284 (36.6%)</div><div class="kpi-label">Non-activators</div></div><div class="kpi-card"><div class="kpi-value kpi-bad">11,092</div><div class="kpi-label">Non-activators with eligible opp.</div></div><div class="kpi-card"><div class="kpi-value kpi-neutral">1,192</div><div class="kpi-label">Non-activators, no eligible opp.</div></div><div class="kpi-card"><div class="kpi-value kpi-neutral">12,284</div><div class="kpi-label">Never-activator (in-period)</div></div></div>
+<h4 class='tbl-caption'>A7.3 Non-activator rate × browser_fam</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>browser_fam</th><th>users</th><th>activators</th><th>non_activators</th><th>non_activator_rate</th></tr></thead>
+<tbody>
+<tr><td>chrome</td><td>21,075</td><td>12,657</td><td>8,418</td><td class="rate-bad">39.9%</td></tr>
+<tr><td>firefox</td><td>5,171</td><td>4,300</td><td>871</td><td class="rate-bad">16.8%</td></tr>
+<tr><td>edge</td><td>2,888</td><td>1,870</td><td>1,018</td><td class="rate-bad">35.2%</td></tr>
+<tr><td>yandex</td><td>2,835</td><td>1,547</td><td>1,288</td><td class="rate-bad">45.4%</td></tr>
+<tr><td>opera</td><td>1,242</td><td>729</td><td>513</td><td class="rate-bad">41.3%</td></tr>
+<tr><td>other</td><td>366</td><td>190</td><td>176</td><td class="rate-bad">48.1%</td></tr>
+<tr><td>safari</td><td>1</td><td>1</td><td>0</td><td class="rate-bad">0.0%</td></tr>
+</tbody></table></div>
+<h4 class='tbl-caption'>A7.3 Non-activator rate × country</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>country</th><th>users</th><th>activators</th><th>non_activators</th><th>non_activator_rate</th></tr></thead>
+<tbody>
+<tr><td>RU</td><td>6,153</td><td>3,432</td><td>2,721</td><td class="rate-bad">44.2%</td></tr>
+<tr><td>UA</td><td>1,908</td><td>1,219</td><td>689</td><td class="rate-bad">36.1%</td></tr>
+<tr><td>ES</td><td>1,861</td><td>1,288</td><td>573</td><td class="rate-bad">30.8%</td></tr>
+<tr><td>CL</td><td>1,389</td><td>928</td><td>461</td><td class="rate-bad">33.2%</td></tr>
+<tr><td>BR</td><td>1,373</td><td>819</td><td>554</td><td class="rate-bad">40.3%</td></tr>
+<tr><td>MX</td><td>1,290</td><td>818</td><td>472</td><td class="rate-bad">36.6%</td></tr>
+<tr><td>PL</td><td>1,205</td><td>851</td><td>354</td><td class="rate-bad">29.4%</td></tr>
+<tr><td>FR</td><td>1,055</td><td>732</td><td>323</td><td class="rate-bad">30.6%</td></tr>
+<tr><td>PK</td><td>1,049</td><td>691</td><td>358</td><td class="rate-bad">34.1%</td></tr>
+<tr><td>IL</td><td>1,000</td><td>662</td><td>338</td><td class="rate-bad">33.8%</td></tr>
+<tr><td>IT</td><td>877</td><td>623</td><td>254</td><td class="rate-bad">29.0%</td></tr>
+<tr><td>DE</td><td>855</td><td>608</td><td>247</td><td class="rate-bad">28.9%</td></tr>
+<tr><td>PE</td><td>817</td><td>539</td><td>278</td><td class="rate-bad">34.0%</td></tr>
+<tr><td>US</td><td>792</td><td>539</td><td>253</td><td class="rate-bad">31.9%</td></tr>
+<tr><td>PT</td><td>631</td><td>409</td><td>222</td><td class="rate-bad">35.2%</td></tr>
+<tr><td>BY</td><td>597</td><td>306</td><td>291</td><td class="rate-bad">48.7%</td></tr>
+<tr><td>GB</td><td>532</td><td>366</td><td>166</td><td class="rate-bad">31.2%</td></tr>
+<tr><td>NL</td><td>518</td><td>332</td><td>186</td><td class="rate-bad">35.9%</td></tr>
+<tr><td>CO</td><td>491</td><td>325</td><td>166</td><td class="rate-bad">33.8%</td></tr>
+<tr><td>LV</td><td>449</td><td>301</td><td>148</td><td class="rate-bad">33.0%</td></tr>
+</tbody></table></div>
+<h4 class='tbl-caption'>A7.3 Non-activator rate × lineage</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>lineage</th><th>users</th><th>activators</th><th>non_activators</th><th>non_activator_rate</th></tr></thead>
+<tbody>
+<tr><td>dogi</td><td>25,716</td><td>14,982</td><td>10,734</td><td class="rate-bad">41.7%</td></tr>
+<tr><td>auto_redirect</td><td>7,478</td><td>6,117</td><td>1,361</td><td class="rate-bad">18.2%</td></tr>
+<tr><td>unknown_build</td><td>323</td><td>159</td><td>164</td><td class="rate-mid">50.8%</td></tr>
+<tr><td>edge_ambiguous_build</td><td>61</td><td>36</td><td>25</td><td class="rate-bad">41.0%</td></tr>
+</tbody></table></div>
+<h4 class='tbl-caption'>A7.5 Top-5 non-activator cohorts</h4>
+<div class='tbl-wrap'><table>
+<thead><tr><th>cohort (browser / country)</th><th>users</th><th>% of non-activators</th></tr></thead>
+<tbody>
+<tr><td>chrome / RU</td><td>1,223</td><td class="rate-bad">10.0%</td></tr>
+<tr><td>yandex / RU</td><td>1,050</td><td class="rate-bad">8.5%</td></tr>
+<tr><td>chrome / UA</td><td>558</td><td class="rate-bad">4.5%</td></tr>
+<tr><td>chrome / BR</td><td>463</td><td class="rate-bad">3.8%</td></tr>
+<tr><td>chrome / ES</td><td>436</td><td class="rate-bad">3.5%</td></tr>
+</tbody></table></div>
+<h2 id="ranked">7. Ranked root causes</h2>
+<div class="callout callout-info"><span class="callout-icon">ℹ️</span>Problem B not available — ranked root causes skipped.</div>
+<h2 id="unexplained">8. Unexplained remainder</h2>
+<p>Everything under reason code <code>UNKNOWN</code> / <code>CIS_UNKNOWN</code>
+remains unexplained after attribution reconstruction — likely a mix of delayed
+postback, client-side cashback exposure (not observable server-side), partner-program
+exclusions, or af-parameter overwrite on Global URLs (new-field coverage dependent).
+See the Coverage snapshot above to judge how much of this residual is explained by
+fallback methodology.</p>
+<h2 id="longitudinal">9. Longitudinal comparison</h2>
+<div class="callout callout-info"><span class="callout-icon">ℹ️</span>No baseline configured. Set <code>LONG_BASELINE</code> and/or <code>LONG_PREVIOUS</code> env vars to a prior <code>report_id</code> to enable current-vs-previous / current-vs-baseline / 4-week-trailing comparison. See <code>specs/workflows/recurring_reports.md</code>.</div>
+<h2 id="recs">10. Recommended fixes</h2>
+
+<h3>Quick wins</h3>
+<ol>
+<li>Push <code>clients.build_app</code> completion monotonically — force updates on old
+    clients to shrink <code>edge_ambiguous_build</code> and <code>unknown_build</code>.</li>
+<li>Backfill <code>events.params</code> coverage monitoring as an alert (drops =
+    instrumentation regression).</li>
+<li>For any label-level finding with <code>CIS_PARTIAL_UTM</code> share &gt; 1 %, trace
+    the creative source — these are typically misconfigured landing pages.</li>
+</ol>
+
+<h3>Medium-term product changes</h3>
+<ol>
+<li>Reduce time between AliHelper activation and purchase (checkout-time re-activation
+    when a foreign <code>sk</code> / <code>af</code> is detected).</li>
+<li>Improve DOGI activation rate where DOGI hub-reach is materially below auto-redirect.</li>
+<li>Add normalised affiliate metadata to <code>events</code>
+    (<code>affiliate_provider</code>, <code>is_alihelper_owned</code>,
+    <code>affiliate_marker_type</code>).</li>
+</ol>
+
+<h3>Tracking &amp; instrumentation</h3>
+<ol>
+<li>Log an <code>Affiliate Overwrite Detected</code> event when our owned marker is
+    replaced — real-time overwrite telemetry.</li>
+<li>Log auto-redirect attempts (success/failure) as backend events.</li>
+<li>Backend-log cashback exposure where detectable (currently client local storage only).</li>
+</ol>
+<h2 id="repro">11. Reproducible code</h2>
+
+<p>Every figure in this report is rebuildable from the raw extracts in
+<code>cache/</code>. Cache namespace for this run:
+<code>pulse__2026-04-28__2026-05-04</code>.</p>
+
+<h3>Pipeline (run in order)</h3>
+<ol>
+<li><code>python -m analysis.extract</code> — MongoDB + Mixpanel export
+    into <code>cache/</code> (incremental; reuses existing extracts).</li>
+<li><code>python -m analysis.problem_a</code> — Problem A funnel, label
+    breakdown, A5/A6, segments, A7 non-activator deep-dive. Writes
+    <code>cache/results_a__pulse__2026-04-28__2026-05-04.pkl</code>.</li>
+<li><code>python -m analysis.problem_b</code> — Problem B attribution
+    reconstruction, reason codes, B3 delayed postback, B4/B5/B6. Writes
+    <code>cache/results_b__pulse__2026-04-28__2026-05-04.pkl</code> (skipped in pulse).</li>
+<li><code>python -m analysis.report</code> — this HTML report.</li>
+</ol>
+
+<h3>Mode selection</h3>
+<p>Set <code>REPORT_MODE</code> to one of <code>oneoff</code> /
+<code>pulse</code> / <code>deep</code> before running any step. Windows
+are derived from the mode in <code>src/config.py</code>; cache files are
+keyed by <code>mode__A_START__A_END</code> to avoid cross-contamination.</p>
+
+<h3>Files</h3>
+<ul>
+<li><code>analysis/extract.py</code> — extraction + coverage snapshot.</li>
+<li><code>analysis/problem_a.py</code> — Problem A analysis + A7.</li>
+<li><code>analysis/problem_b.py</code> — Problem B analysis + B6 validation.</li>
+<li><code>analysis/report.py</code> — HTML assembly from cached results.</li>
+<li><code>src/utils.py</code> — classification, labeling, region / lineage /
+    subtype helpers.</li>
+<li><code>src/config.py</code> — windows, OUR_SKS, EPN cabinet id,
+    attribution constants.</li>
+</ul>
+
+<hr>
+<p class="meta">End of report · pulse_2026-04-28_to_2026-05-04</p>
+</main>
+</div>
+
+<script>
+const sections = document.querySelectorAll('h2[id]');
+const navLinks = document.querySelectorAll('.sidebar nav a[href^="#"]');
+const obs = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      navLinks.forEach(l => l.classList.remove('active'));
+      const active = document.querySelector('.sidebar nav a[href="#' + e.target.id + '"]');
+      if (active) active.classList.add('active');
+    }
+  });
+}, { rootMargin: '-20% 0px -75% 0px' });
+sections.forEach(s => obs.observe(s));
+</script>
+
+</body>
+</html>

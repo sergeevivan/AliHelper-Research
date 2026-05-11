@@ -58,6 +58,15 @@ def _end_of_day(dt: datetime) -> datetime:
     return dt.replace(hour=23, minute=59, second=59)
 
 
+def _parse_date_override(name: str, end_of_day: bool = False) -> datetime | None:
+    """Parse YYYY-MM-DD env var as UTC datetime, optionally at end-of-day."""
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return None
+    dt = datetime.strptime(raw, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    return _end_of_day(dt) if end_of_day else dt
+
+
 def _derive_windows(mode: str):
     if mode == "oneoff":
         a_start = datetime(2026, 3,  6,  0,  0,  0, tzinfo=timezone.utc)
@@ -76,6 +85,17 @@ def _derive_windows(mode: str):
         maturity = last_day - timedelta(days=7)
         b_end = _end_of_day(maturity)
         b_start = maturity - timedelta(days=27)
+
+    # Optional explicit window override (e.g. for ad-hoc pulse re-runs over
+    # a specific past week). Both A_START_OVERRIDE and A_END_OVERRIDE must
+    # be set together. Affects only Problem A window.
+    a_start_ov = _parse_date_override("A_START_OVERRIDE")
+    a_end_ov   = _parse_date_override("A_END_OVERRIDE", end_of_day=True)
+    if a_start_ov and a_end_ov:
+        a_start, a_end = a_start_ov, a_end_ov
+    elif a_start_ov or a_end_ov:
+        raise ValueError("A_START_OVERRIDE and A_END_OVERRIDE must be set together.")
+
     return a_start, a_end, b_start, b_end
 
 

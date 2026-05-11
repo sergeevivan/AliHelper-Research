@@ -39,6 +39,10 @@ Rolling 28 UTC days:
 
 Pick a stable monthly-deep report as the longitudinal comparison baseline (e.g. first complete month of 2026). Document baseline report_id and period in every subsequent report.
 
+### Ad-hoc window override
+
+For one-off re-runs over a specific past week or month (e.g. a backfill or a follow-up investigation), `src/config.py` accepts `A_START_OVERRIDE` and `A_END_OVERRIDE` env vars (both required together, `YYYY-MM-DD` UTC). The override replaces the Problem A window derived from `REPORT_MODE`; cache files and `report_id` are still namespaced by the chosen mode + dates, so overrides don't collide with the rolling pulse/deep caches. Problem B window is not overrideable.
+
 ---
 
 ## Known incident window

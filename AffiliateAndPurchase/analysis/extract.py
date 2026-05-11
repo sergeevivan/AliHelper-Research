@@ -124,43 +124,103 @@ def extract_events_problem_b(db) -> pd.DataFrame:
                           "Problem B (72h lookback)")
 
 
+CLIENTS_MASTER_PATH = CACHE_DIR / "clients.pkl"
+
+
+def _client_row(doc) -> dict:
+    return {
+        "_id_hex": str(doc["_id"]),
+        "guest_id": str(doc.get("guest_id", "")),
+        "browser": doc.get("browser", ""),
+        "country": str(doc.get("country", "")).upper(),
+        "client_version": doc.get("client_version", ""),
+        "os": doc.get("os", ""),
+        "build_app": doc.get("build_app"),
+        "city": doc.get("city", ""),
+        "user_agent": doc.get("user_agent", ""),
+    }
+
+
 def extract_clients(db) -> pd.DataFrame:
-    """Client enrichment: browser/country/version/build_app per guest_id."""
-    cached = _load("clients")
-    if cached is not None:
-        return cached
+    """Client enrichment: browser/country/version/build_app per guest_id.
 
-    print_section("Extracting clients")
-    pipeline = [
-        {"$project": {
-            "guest_id": 1,
-            "browser": 1,
-            "country": 1,
-            "client_version": 1,
-            "os": 1,
-            "build_app": 1,
-            "city": 1,
-            "user_agent": 1,
-        }},
-    ]
+    Slowly-changing, full-collection table. Cached once at
+    `cache/clients.pkl` (not namespaced by report window) and extended
+    incrementally on subsequent runs via `_id > max(_id)` — `_id` is an
+    ObjectId, chronological by leading timestamp bytes, and the `_id`
+    field is indexed in MongoDB so the incremental fetch is cheap.
+    """
+    print_section("Extracting clients (incremental)")
+
+    master = None
+    if CLIENTS_MASTER_PATH.exists():
+        try:
+            master = pd.read_pickle(CLIENTS_MASTER_PATH)
+        except Exception as e:
+            print(f"  [warn] failed to load master {CLIENTS_MASTER_PATH}: {e}")
+            master = None
+    # Migration: legacy master without `_id_hex` column can't be extended
+    # incrementally — force a full rescan.
+    if master is not None and (len(master) == 0 or "_id_hex" not in master.columns):
+        print("  [migrate] legacy clients cache has no _id_hex — full rescan")
+        master = None
+
+    pipeline = [{"$project": {
+        "guest_id": 1, "browser": 1, "country": 1,
+        "client_version": 1, "os": 1, "build_app": 1,
+        "city": 1, "user_agent": 1,
+    }}]
+
+    if master is not None and len(master):
+        from bson import ObjectId
+        max_hex = master["_id_hex"].max()
+        print(f"  Master cache: {len(master):,} rows, max _id={max_hex}")
+        pipeline.insert(0, {"$match": {"_id": {"$gt": ObjectId(max_hex)}}})
+    else:
+        print("  No master cache — full collection scan")
+
+    # Sort by _id ASC so checkpoints are monotonic — on crash, the saved
+    # master is a valid prefix and the next run resumes via `_id > max`.
+    pipeline.append({"$sort": {"_id": 1}})
+
     cursor = db["clients"].aggregate(pipeline, allowDiskUse=True, batchSize=50000)
+    new_rows = []
+    CHECKPOINT_EVERY = 1_000_000
 
-    rows = []
-    for doc in cursor:
-        rows.append({
-            "guest_id": str(doc.get("guest_id", "")),
-            "browser": doc.get("browser", ""),
-            "country": str(doc.get("country", "")).upper(),
-            "client_version": doc.get("client_version", ""),
-            "os": doc.get("os", ""),
-            "build_app": doc.get("build_app"),
-            "city": doc.get("city", ""),
-            "user_agent": doc.get("user_agent", ""),
-        })
+    def _flush(extra_rows, reason):
+        if not extra_rows:
+            return master
+        new_df = pd.DataFrame(extra_rows)
+        if master is not None and len(master):
+            keep = new_df[~new_df["_id_hex"].isin(master["_id_hex"])]
+            merged = pd.concat([master, keep], ignore_index=True)
+        else:
+            merged = new_df
+        merged.to_pickle(CLIENTS_MASTER_PATH)
+        print(f"  [checkpoint:{reason}] master -> {CLIENTS_MASTER_PATH} "
+              f"({len(merged):,} rows)")
+        return merged
 
-    df = pd.DataFrame(rows)
-    print(f"  Total client records: {len(df):,}")
-    _save(df, "clients")
+    try:
+        for i, doc in enumerate(cursor):
+            new_rows.append(_client_row(doc))
+            if (i + 1) % 500_000 == 0:
+                print(f"    ... {i + 1:,} new clients processed")
+            if (i + 1) % CHECKPOINT_EVERY == 0:
+                master = _flush(new_rows, f"{i + 1:,}")
+                new_rows = []
+    except Exception as e:
+        # Save partial progress before re-raising so the next run can
+        # resume from `_id > max(saved._id_hex)`.
+        print(f"  [error] cursor failed at {len(new_rows):,} buffered "
+              f"+ {len(master) if master is not None else 0:,} master: {e}")
+        _flush(new_rows, "crash")
+        raise
+
+    df = _flush(new_rows, "final") if new_rows else master
+    if df is None:
+        df = pd.DataFrame()
+    print(f"  Master total: {len(df):,} rows")
     return df
 
 
@@ -273,7 +333,13 @@ def _lineage_split(clients: pd.DataFrame) -> dict:
 
 def report_coverage(events_a: pd.DataFrame, clients: pd.DataFrame,
                     pc_raw: list[dict]) -> dict:
-    """Coverage snapshot for the report (section 2 of report_structure.md)."""
+    """Coverage snapshot for the report (section 2 of report_structure.md).
+
+    `build_app` coverage and lineage split are scoped to **active** clients
+    only — i.e. those whose `guest_id` appears in `events_a` for the window.
+    Old inactive clients can't be backfilled with `build_app`, so including
+    them in the denominator understates the true rollout progress.
+    """
     print_section("Coverage snapshot")
 
     coverage = {}
@@ -289,20 +355,34 @@ def report_coverage(events_a: pd.DataFrame, clients: pd.DataFrame,
         print(f"  events.params: {has_params:,}/{total:,} "
               f"({pct(has_params, total)})")
 
-    # clients.build_app
+    # Active clients = those that appear in events for this window. Use one
+    # row per guest (last seen in clients), so multi-client guests don't
+    # inflate the denominator.
+    active_guests = set(events_a["guest_id"].dropna().astype(str).unique()) \
+        if len(events_a) else set()
     if len(clients):
-        has_build = clients["build_app"].apply(
+        cl_dedup = clients.drop_duplicates(subset="guest_id", keep="last")
+        active_clients = cl_dedup[cl_dedup["guest_id"].astype(str).isin(active_guests)] \
+            if active_guests else cl_dedup.iloc[0:0]
+    else:
+        active_clients = clients
+
+    # clients.build_app — scoped to active clients in window
+    if len(active_clients):
+        has_build = active_clients["build_app"].apply(
             lambda v: isinstance(v, str) and v.strip() != "").sum()
-        total = len(clients)
+        total = len(active_clients)
         coverage["build_app_pct"] = 100 * has_build / total if total else 0.0
         coverage["build_app_count"] = int(has_build)
         coverage["clients_total"] = int(total)
+        coverage["clients_scope"] = "active_in_window"
 
-        build_counts = clients["build_app"].fillna("").astype(str).str.lower().value_counts()
+        build_counts = (active_clients["build_app"]
+                        .fillna("").astype(str).str.lower().value_counts())
         coverage["build_app_breakdown"] = build_counts.to_dict()
 
-        print(f"  clients.build_app: {has_build:,}/{total:,} "
-              f"({pct(has_build, total)})")
+        print(f"  clients.build_app (active in window): "
+              f"{has_build:,}/{total:,} ({pct(has_build, total)})")
         for b, c in build_counts.head(10).items():
             print(f"    {b or '<missing>':<20} {c:>10,}")
 
@@ -331,10 +411,11 @@ def report_coverage(events_a: pd.DataFrame, clients: pd.DataFrame,
             print(f"    {kind}: " + ", ".join(
                 f"{k}={v:,} ({100*v/total_k:.1f}%)" for k, v in dist.items()))
 
-    # Flow lineage split (from clients)
-    print("\n  -- Flow lineage split --")
-    ls = _lineage_split(clients)
+    # Flow lineage split — same scope as build_app coverage
+    print("\n  -- Flow lineage split (active in window) --")
+    ls = _lineage_split(active_clients)
     if ls:
+        ls["scope"] = "active_in_window"
         coverage["lineage_split"] = ls
         for seg, cnt in ls["counts"].items():
             print(f"    {seg:<22} {cnt:>10,} ({ls['pcts'][seg]:.1f}%)")

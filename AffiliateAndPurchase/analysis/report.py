@@ -281,7 +281,10 @@ def coverage_section(coverage: dict | None) -> str:
                      _fmt(coverage['events_total']),
                      f"{coverage['events_params_pct']:.1f}%"])
     if "build_app_count" in coverage:
-        rows.append(["clients.build_app",
+        scope = coverage.get("clients_scope") or "all"
+        label = ("clients.build_app (active in window)"
+                 if scope == "active_in_window" else "clients.build_app")
+        rows.append([label,
                      _fmt(coverage['build_app_count']),
                      _fmt(coverage['clients_total']),
                      f"{coverage['build_app_pct']:.1f}%"])

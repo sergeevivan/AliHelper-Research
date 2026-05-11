@@ -59,10 +59,12 @@ Always report as first content section (see `specs/output/report_structure.md` s
 | Metric | Value |
 |--------|-------|
 | `% events with events.params` | 0-100 % |
-| `% clients with build_app` | 0-100 % |
+| `% clients with build_app` (active in window) | 0-100 % |
 | `% Purchase Completed with new fields` | 0-100 % |
 | `attribution source tiers` | counts per tier: `events.params` / `querySk` / `url_parse` |
-| `flow lineage split` | `dogi` / `auto_redirect` / `edge_ambiguous_build` / `unknown_build` counts |
+| `flow lineage split` (active in window) | `dogi` / `auto_redirect` / `edge_ambiguous_build` / `unknown_build` counts |
+
+**Scope of client-side coverage:** `build_app` % and lineage split are computed over **active clients only** — i.e. those whose `guest_id` appears in `events` for the window (deduped, one row per guest, last seen). Old inactive clients cannot be backfilled with `build_app`, so including them in the denominator would understate the true rollout. Scope is recorded on the coverage record as `clients_scope = "active_in_window"`.
 
 Over time, `build_app` coverage should rise and `edge_ambiguous_build` / `unknown_build` should shrink. Regression = instrumentation issue.
 
@@ -85,7 +87,13 @@ To keep pulse generation fast and reduce MongoDB load:
 
 4. **Invalidation**: if methodology change affects how raw data is stored (not how it's classified), bump cache version and re-extract. If only classification logic changes, keep raw cache and recompute derived layers.
 
-5. **Client/clients table**: treat as slowly-changing; refresh snapshots on a fixed cadence (e.g. daily full snapshot), not per-report.
+5. **Client/clients table**: treat as slowly-changing and **append-extend incrementally**. Master cache lives at `cache/clients.pkl` (single file across all reports, not namespaced per window). Each run:
+   - loads the master and reads `max(_id_hex)` from it,
+   - fetches only `{_id: {$gt: max_id}}` from MongoDB (sorted ASC),
+   - checkpoints to disk every 1M rows so a dropped Mongo connection during the initial bootstrap doesn't lose progress (next run resumes from the last checkpoint via `max(_id_hex)`),
+   - dedupes by `_id_hex` and rewrites the master.
+
+   `_id` is an ObjectId — chronological by its leading 4-byte timestamp and indexed in MongoDB — so the incremental tail-fetch is cheap. A first-time bootstrap or a master without the `_id_hex` column triggers one full collection scan; all subsequent runs are tail-only.
 
 ---
 
